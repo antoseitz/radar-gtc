@@ -470,6 +470,7 @@ th{color:var(--muted)}
 .pizarra.imp .piz{font-size:15px}
 .warnt{color:var(--warn)}
 .piz.info{border-left-color:var(--brand)}
+.th1-a .mot{display:block;font-size:11.5px;color:var(--muted);white-space:normal}
 details.more{border-top:1px solid var(--line);padding-top:18px}
 details.more>summary{cursor:pointer;font-weight:650;font-size:15px;list-style:none}
 details.more>summary::-webkit-details-marker{display:none}
@@ -557,6 +558,8 @@ details.more .more-in{display:flex;flex-direction:column;gap:18px;margin-top:18p
       <p><b>Kronos.</b> Modelo de IA open source entrenado con velas de 45 bolsas. Cada día simula 20 escenarios de precio para los próximos 10 días hábiles. <i>Movimiento típico</i> es cuánto suele variar el precio en esos escenarios; el abanico muestra el rango probable. Úsalo para medir riesgo y potencial de movimiento, no como predicción de dirección.</p>
       <p><b>Tasas de interés.</b> La columna <i>Tasas</i> muestra cuánto suele moverse cada acción cuando la tasa del bono a 10 años de EE.UU. sube 0,10 puntos porcentuales (10 pb), según el último año. Negativo significa que cae cuando suben las tasas. Los eventos macro del calendario (inflación, empleo, Fed) son los días en que las tasas más se mueven.</p>
       <p><b>Monte Carlo.</b> En la pestaña Cartera, simula 4.000 caminos posibles hasta el cierre del desafío con la volatilidad real de cada acción, sus correlaciones, su relación con el mercado y un salto en el día de su reporte. Responde "¿qué probabilidad tengo de superar al índice por X%?". El buscador prueba cientos de combinaciones de 5 acciones y muestra las que más probabilidad tienen de llegar a tu meta. No predice la dirección: todas las acciones parten con la misma expectativa que el mercado.</p>
+      <p><b>Cómo se arma la lista cada día.</b> 25 acciones son fijas (el núcleo, una o más por tema). El resto se elige cada día por puntaje (volatilidad y movimiento reciente) entre las acciones base y las que aparecen en los rankings de Yahoo. Para agregar acciones que el equipo quiera seguir siempre (por ejemplo, las que encontraron en Bloomberg o las que ya compraron), escríbanlas en el archivo <code>equipo.txt</code> de GitHub, una por línea.</p>
+      <p><b>Nuevas del día.</b> Además de las acciones fijas, cada actualización revisa los rankings de Yahoo (las que más suben, las más transadas, small caps agresivas, las más apostadas a la baja y tecnológicas de alto crecimiento) y suma hasta 20 acciones de EE.UU. que cumplan: precio sobre US$3, tamaño sobre US$1.000 millones y al menos US$20 millones transados al día. Aparecen con la etiqueta "Nueva" y el motivo por el que entraron. Salen solas cuando dejan de destacar.</p>
       <p><b>Mi Bloomberg.</b> Pestaña privada para tus acciones sacadas del Terminal (por ejemplo con EQS). Sube el Excel exportado o pega las celdas: el panel detecta solo las columnas. Esas acciones se pueden agregar a la cartera y simular en Monte Carlo. Se guardan solo en tu navegador.</p>
       <p><b>Efecto contagio.</b> Para cada empresa se revisaron sus reportes de resultados de los últimos ~3 años y se midió qué otras acciones se movieron hacia el mismo lado ese día. Sirve para anticipar: si una empresa grande reporta bien, sus proveedores y competidores que aún no reportan suelen subir. Solo se muestran relaciones que se repitieron al menos 70% de las veces.</p>
       <p><b>Grupos.</b> Acciones que se mueven juntas en los últimos 90 días. Cinco del mismo grupo son una sola apuesta grande.</p>
@@ -765,7 +768,11 @@ const TEMA_POR_QUE={
   "eVTOL / defensa":"Taxis aéreos eléctricos, drones y defensa. Se mueven con certificaciones y contratos militares.",
   "Fintech":"Pagos y créditos digitales. Muy sensibles a las tasas de interés: si bajan las tasas, suelen subir.",
   "EV / baterías":"Autos eléctricos y baterías. Dependen de Tesla, de los subsidios y de las tasas de interés.",
-  "Tierras raras":"Minerales críticos para chips y defensa. Reaccionan a la tensión comercial entre EE.UU. y China."};
+  "Tierras raras":"Minerales críticos para chips y defensa. Reaccionan a la tensión comercial entre EE.UU. y China.",
+  "Elegidas por el equipo":"Acciones que el equipo agregó a mano en el archivo equipo.txt de GitHub (por ejemplo, encontradas en Bloomberg o ya compradas). Siempre se siguen.",
+  "Biotecnología":"Entró hoy por su puntaje. Las biotecnológicas pueden saltar 30% o más con un resultado clínico o una aprobación.",
+  "Cripto y mercados":"Entró hoy por su puntaje. Plataformas de inversión, bolsas y mineras de cripto: se mueven con el apetito por riesgo.",
+  "Nuevas del día":"No estaban en nuestra lista: el panel las encontró hoy en los rankings de Yahoo (las que más suben, las más transadas, small caps agresivas, más apostadas a la baja). Se renuevan cada día. Revisa que estén en el WLS antes de comprar."};
 function hace(f){if(!f)return"";const d=new Date(f.length<=16?f+":00Z":f),h=(Date.now()-d)/36e5;if(isNaN(h))return fecha(f);if(h<1)return"hace minutos";if(h<24)return`hace ${Math.round(h)} h`;const dd=Math.round(h/24);return dd===1?"ayer":`hace ${dd} días`}
 let notiFiltro="todas";
 function secNoticias(){
@@ -802,11 +809,11 @@ function secUniverso(){
   const A=D.acciones,temas=[...new Set(A.map(a=>a.tema))];
   const prom=g=>{const v=g.map(a=>a.r1m).filter(x=>x!=null);return v.length?v.reduce((p,q)=>p+q,0)/v.length:0};
   const curva=g=>{const hs=g.map(a=>(a.hist||[]).filter(x=>x)).filter(h=>h.length>10),L=Math.min(...hs.map(h=>h.length));if(!hs.length||!isFinite(L))return[];return Array.from({length:L},(_,i)=>100*hs.reduce((s,h)=>s+h[h.length-L+i]/h[h.length-L],0)/hs.length)};
-  const T=temas.map(t=>{const g=A.filter(a=>a.tema===t).sort((p,q)=>(q.r1m??-999)-(p.r1m??-999));return{t,g,r:prom(g),c:curva(g)}}).sort((a,b)=>b.r-a.r);
-  return`<section class="r-sec" id="s-univ"><div class="r-head"><span class="r-num">6</span><div><h2>¿Qué acciones seguimos y por qué?</h2><p>Seguimos ${A.length} acciones de ${temas.length} temas. Las elegimos porque <b>se mueven mucho</b> (en un torneo solo gana quien se aleja del índice), son <b>fáciles de comprar y vender</b> y muchas <b>presentan resultados durante el desafío</b>. El gráfico de cada tema es el promedio de sus acciones en los últimos 3 meses.</p></div></div>
+  const T=temas.map(t=>{const g=A.filter(a=>a.tema===t).sort((p,q)=>(q.r1m??-999)-(p.r1m??-999));return{t,g,r:prom(g),c:curva(g)}}).sort((a,b)=>(b.t==="Nuevas del día")-(a.t==="Nuevas del día")||b.r-a.r);
+  return`<section class="r-sec" id="s-univ"><div class="r-head"><span class="r-num">6</span><div><h2>¿Qué acciones seguimos y por qué?</h2><p>Hoy seguimos <b>${A.length} acciones</b>. La lista se arma sola cada día: <b>${D.nBase??"–"} fijas</b> (el núcleo, para no perder continuidad)${D.nEquipo?`, <b>${D.nEquipo} del equipo</b> (archivo equipo.txt)`:""} y <b>${D.nDinamicas??"–"} que cambian a diario</b>: las de mejor puntaje entre cientos de candidatas, incluidas ${D.nNuevas||0} que hoy aparecieron en los rankings de Yahoo. Todas cumplen precio sobre US$3 y más de US$20 millones transados al día. Las buscamos porque <b>se mueven mucho</b> (en un torneo solo gana quien se aleja del índice), son <b>fáciles de comprar y vender</b> y muchas <b>presentan resultados durante el desafío</b>. El gráfico de cada tema es el promedio de sus acciones en los últimos 3 meses.</p></div></div>
     <div class="themes">${T.map(x=>`<div class="th1" style="--th:${colorTema(x.t)}"><div class="th1-h"><span class="tdot" style="background:${colorTema(x.t)}"></span><b>${esc(x.t)}</b><span class="th1-r ${x.r>=0?"up":"down"}">${sgn(x.r)}<small> mes</small></span></div>
       <p>${esc(TEMA_POR_QUE[x.t]||"Tema agregado por el equipo.")}</p>${spark(x.c,300,46)}
-      <div class="th1-l">${x.g.map(a=>`<button type="button" class="th1-a" data-open="${a.t}">${av(a,1)}<span>${esc(nombreCorto(a.nombre,a.t))}</span><span class="${(a.r1m??0)>=0?"up":"down"}">${sgn(a.r1m,0)}</span></button>`).join("")}</div></div>`).join("")}</div>
+      <div class="th1-l">${x.g.map(a=>`<button type="button" class="th1-a" data-open="${a.t}" title="${esc(a.motivo||"")}">${av(a,1)}<span>${esc(nombreCorto(a.nombre,a.t))}${a.motivo?`<small class="mot">${esc(a.motivo.split(" · ")[0])}</small>`:a.origen==="nucleo"?'<small class="mot">Fija</small>':""}</span><span class="${(a.r1m??0)>=0?"up":"down"}">${sgn(a.r1m,0)}</span></button>`).join("")}</div></div>`).join("")}</div>
     <p class="faint" style="margin:0;font-size:12.5px">Yahoo no indica si una acción está en el índice WLS del desafío: confírmalo en Bloomberg con <b>MEMB</b> antes de comprar.</p>
   </section>`;
 }
@@ -818,6 +825,7 @@ function ideas2(){
     suben:["Suben","Las que más subieron esta semana.",top(A,"r1s").filter(a=>a.r1s>0).slice(0,8),a=>sgn(a.r1s),"semana",a=>`mes ${sgn(a.r1m)}`,"up"],
     caen:["Caen","Las que más cayeron esta semana. RSI bajo 30 = cayó muy rápido.",top(A,"r1s",false).filter(a=>a.r1s<0).slice(0,8),a=>sgn(a.r1s),"semana",a=>`RSI ${fmt(a.rsi,0)}${a.rsi!=null&&a.rsi<=30?" · sobrevendida":""}`,"down"],
     volumen:["Volumen raro","Se transaron mucho más que lo normal: suele haber una noticia detrás.",A.filter(a=>(a.volRatio||0)>=1.5).sort((p,q)=>q.volRatio-p.volRatio).slice(0,8),a=>fmt(a.volRatio,1)+"x","vs. normal",a=>`semana ${sgn(a.r1s)}`,""],
+    nuevas:["Nuevas del día","Acciones que no estaban en la lista y hoy aparecieron en los rankings de Yahoo.",A.filter(a=>a.origen==="nueva").sort((p,q)=>(q.puntaje||0)-(p.puntaje||0)).slice(0,10),a=>sgn(a.r1d),"hoy",a=>esc(a.motivo.split(" · ")[0]),""],
     analistas:["Analistas","Mayor distancia entre el precio actual y el precio objetivo de los analistas.",top(A.filter(a=>(a.nAnalistas||0)>=3&&a.upside>0),"upside").slice(0,8),a=>sgn(a.upside,0),"potencial",a=>`${esc(a.reco||"")} · ${a.nAnalistas} analistas`,"up"]};
   const [,desc,items,val,lbl,why,cls]=T[ideaTab];
   return`<div class="seg" role="tablist" style="align-self:flex-start">${Object.entries(T).map(([k,v])=>`<button type="button" role="tab" aria-selected="${k===ideaTab}" data-idea="${k}">${v[0]}</button>`).join("")}</div>
@@ -974,7 +982,7 @@ function renderAcciones(){
     <thead><tr>${COLS.map(([k,l,n])=>`<th class="sort ${n?"n":""}" data-k="${k}">${l}${sortKey===k?(sortDir>0?" ↑":" ↓"):""}</th>`).join("")}<th>Señales</th><th>60 días</th><th><span class="sr">Cartera</span></th></tr></thead>
     <tbody>${F.map(a=>`<tr class="click" data-open="${a.t}">
       <td class="n faint">${a.rank}</td>
-      <td><span class="tk">${esc(a.t)}</span><span class="nm">${esc(a.nombre)}</span></td>
+      <td><span class="tk">${esc(a.t)}</span>${a.origen==="nueva"?' <span class="chip good" style="font-size:10.5px;padding:0 6px">Nueva</span>':a.origen==="equipo"?' <span class="chip info" style="font-size:10.5px;padding:0 6px">Equipo</span>':a.origen==="nucleo"?' <span class="chip" style="font-size:10.5px;padding:0 6px" title="Siempre se sigue">Fija</span>':""}<span class="nm">${esc(a.nombre)}</span></td>
       <td>${esc(a.tema)}<span class="nm">${esc(a.industria||"")}</span></td>
       <td class="n">${fmt(a.precio,2)}</td><td class="n">${pct(a.r1d)}</td><td class="n">${pct(a.r1s)}</td><td class="n">${pct(a.r1m)}</td><td class="n">${pct(a.r3m)}</td>
       <td>${momChip(a.momentum)}</td>
