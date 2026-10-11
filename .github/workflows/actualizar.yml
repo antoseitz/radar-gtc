@@ -1,0 +1,39 @@
+name: Actualizar Radar GTC
+
+on:
+  schedule:
+    - cron: "30 11 * * 1-5"   # 08:30 Chile, antes de la apertura
+    - cron: "15 21 * * 1-5"   # 18:15 Chile, despues del cierre
+  workflow_dispatch:          # boton "Run workflow" para actualizar a mano
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  actualizar:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Instalar librerias
+        run: pip install -r requirements.txt
+      - name: Descargar datos de Yahoo Finance
+        run: python radar_gtc.py docs/radar_gtc.json
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs
+      - name: Publicar pagina
+        id: deployment
+        uses: actions/deploy-pages@v4
