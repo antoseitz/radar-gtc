@@ -606,6 +606,11 @@ def construir(es_demo=False):
         close, volu, info_demo = demo(todos, temas)
     else:
         ohlc = descargar(todos)
+        # Bitcoin cotiza sabado y domingo: esos dias crean filas donde las acciones
+        # quedan "planas" (0%). Solo se dejan los dias en que la bolsa abrio.
+        acc = [c for c in ohlc["Close"].columns if not str(c).endswith("-USD")]
+        dias_bolsa = ohlc["Close"][acc].notna().mean(axis=1) > 0.5
+        ohlc = ohlc[dias_bolsa]
         close, volu = ohlc["Close"], ohlc["Volume"]
 
     forzadas = list(dict.fromkeys([t for t in NUCLEO if t in temas] + list(equipo)))
