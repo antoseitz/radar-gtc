@@ -39,7 +39,7 @@ jobs:
           key: kronos-small-v1
       - name: Descargar datos de Yahoo Finance y correr Kronos
         env:
-          RADAR_KRONOS: "1"
+          RADAR_KRONOS: "0"
           KRONOS_DIR: Kronos
         run: python radar_gtc.py docs/radar_gtc.json
       - uses: actions/configure-pages@v5
