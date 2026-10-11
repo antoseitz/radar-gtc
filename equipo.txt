@@ -1,0 +1,5 @@
+# Acciones que el equipo quiere seguir SIEMPRE (por ejemplo, las que encontraron en Bloomberg con EQS
+# o las que ya compraron). Una por línea. Opcional: una coma y el motivo.
+# Ejemplos (borra el # para activarlos):
+# ASML, Proveedor clave de chips; reporta el 14 oct
+# VRT, Infraestructura eléctrica para centros de datos
