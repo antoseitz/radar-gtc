@@ -460,6 +460,16 @@ th{color:var(--muted)}
 .th1-a:hover span:nth-child(2){text-decoration:underline}
 .th1-a span:nth-child(2){overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .th1-a span:last-child{font-weight:600;font-variant-numeric:tabular-nums}
+.kp3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+@media (max-width:900px){.kp3{grid-template-columns:minmax(0,1fr)}}
+.kp.sm{border-top-width:1px;padding:12px 14px}
+.kp.sm .kv{font-size:20px}
+.kp-row{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.kp-row svg.spark{width:110px!important}
+.pizarra.imp{border-radius:12px}
+.pizarra.imp .piz{font-size:15px}
+.warnt{color:var(--warn)}
+.piz.info{border-left-color:var(--brand)}
 details.more{border-top:1px solid var(--line);padding-top:18px}
 details.more>summary{cursor:pointer;font-weight:650;font-size:15px;list-style:none}
 details.more>summary::-webkit-details-marker{display:none}
@@ -713,6 +723,8 @@ function renderResumen(){
   <section class="r-sec"><div class="r-head"><span class="r-num">1</span><div><h2>¿Cómo está el mercado?</h2><p>Lo que pasó esta semana en el mundo y en la lista de acciones que seguimos.</p></div></div>
     <p class="r-verdict" style="margin:0">${verd}</p>
     <div class="kp4">${kp("Mercado global",ac)}${kp("Nasdaq (tecnología)",nq)}${kp("Small caps EE.UU.",iw)}${kp("Tasa 10 años EE.UU.",tz,1)}</div>
+    <div class="kp3">${[["BTC-USD","Bitcoin","Mueve a las acciones cripto"],["URA","Uranio","Mueve a las nucleares"],["SMH","Semiconductores","Mueve a los chips e IA"]].map(([k,l,d])=>{const x=m(k);return x?`<div class="kp sm"><span class="kl">${l} <span class="faint">· ${d}</span></span><div class="kp-row"><span class="kv">${fmt(x.precio,x.precio>1000?0:2)}</span>${spark(x.hist,110,28)}</div><span class="kc ${x.r1s>=0?"up":"down"}">${sgn(x.r1s)} esta semana · ${sgn(x.r1m)} mes</span></div>`:""}).join("")}</div>
+    ${pizarra().replace('<div class="card pizarra">','<div class="card pizarra imp">')}
     <div class="brd"><span class="brd-t">Tendencia de nuestras ${n} acciones (último mes vs. últimos 3 meses)</span>
       <div class="bbar">${Object.keys(MOM).map(k=>`<span style="flex:${cuad[k]||0};background:${MOM[k][0]}" title="${k}: ${cuad[k]||0}"></span>`).join("")}</div>
       <div class="legend-mini">${Object.keys(MOM).map(k=>`<span><i style="background:${MOM[k][0]}"></i>${k} <b>${cuad[k]||0}</b></span>`).join("")}</div></div>
@@ -727,7 +739,10 @@ function renderResumen(){
   ${secSensibilidad()}
   ${secUniverso()}
   <section class="r-sec"><div class="r-head"><span class="r-num">7</span><div><h2>¿Quién arrastra a quién?</h2><p>Cuando una empresa grande presenta resultados, sus proveedores, clientes y competidores suelen moverse con ella. Esto sale de comparar sus reportes de los últimos ~3 años.</p></div></div>
-    <div class="card">${ctg.length?`<div class="ctg2">${ctg.map(l=>`<div class="ctg2-r"><div class="ctg2-h">${av(byT[l.t]||{t:l.t,tema:"Líder"},1)}${tkBtn(l.t)} <span class="muted">${esc(nombreCorto(l.nombre,l.t))} · ${l.dias===0?"reporta hoy":l.dias===1?"reporta mañana":"reporta el "+fecha(l.proximo)}</span></div>
+    ${(()=>{const rec=C.filter(l=>l.reciente);return rec.length?`<div class="card"><header><h2>Ya reportaron (últimos 5 días)</h2></header><p class="muted" style="margin:0;font-size:13.5px">Cómo reaccionó la empresa y cuánto se movieron las que suelen seguirla. "Aún no se mueve" = podría moverse en los próximos días.</p>
+      <div class="ctg2">${rec.map(l=>{const r=l.reciente;return`<div class="ctg2-r"><div class="ctg2-h">${av(byT[l.t]||{t:l.t,tema:"Líder"},1)}${tkBtn(l.t)} <span class="muted">reportó ${fecha(r.fecha)} · reacción <b class="${r.reaccion>=0?"up":"down"}">${sgn(r.reaccion)}</b> vs mercado</span></div>
+        <div class="ctg2-f">${r.seguidores.map(s=>{const falta=s.esperado-s.real,pend=Math.sign(s.esperado)===Math.sign(falta)&&Math.abs(falta)>=1.5;return`${tkBtn(s.t)} esperado ${sgn(s.esperado)}, real <span class="${s.real>=0?"up":"down"}">${sgn(s.real)}</span>${pend?' <b class="warnt">aún no se mueve</b>':""}`}).join(" · ")}</div></div>`}).join("")}</div></div>`:""})()}
+    <div class="card"><header><h2>Reportan pronto y arrastran a otras</h2></header>${ctg.length?`<div class="ctg2">${ctg.map(l=>`<div class="ctg2-r"><div class="ctg2-h">${av(byT[l.t]||{t:l.t,tema:"Líder"},1)}${tkBtn(l.t)} <span class="muted">${esc(nombreCorto(l.nombre,l.t))} · ${l.dias===0?"reporta hoy":l.dias===1?"reporta mañana":"reporta el "+fecha(l.proximo)}</span></div>
           <div class="ctg2-f">Se movieron en la misma dirección: ${l.seguidores.slice(0,4).map(s=>`${tkBtn(s.t)} <span class="faint">${s.mismo}% de las veces</span>`).join(", ")}</div></div>`).join("")}</div>`:'<span class="ag-empty">Sin relaciones claras en los próximos reportes.</span>'}
       <span class="faint" style="font-size:12.5px">Son patrones del pasado: ayudan a anticipar, pero no garantizan que se repitan. Confírmalos con <b>SPLC</b> en Bloomberg (proveedores y clientes).</span></div>
   </section>
