@@ -1,0 +1,491 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Radar GTC</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..800&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: mesa de operaciones — barra de estado arriba, pestañas, tablas densas con números alineados */
+:root{
+  --bg:#F3F5F8; --surface:#FFFFFF; --sunk:#E8ECF2; --line:#D3DAE4;
+  --fg:#141B26; --muted:#5A6678; --accent:#1F4FD8; --accent-ink:#FFFFFF;
+  --up:#0F7A4A; --down:#C23A2E; --warn:#A86200; --warn-bg:#FFF1D6; --up-bg:#DDF3E7; --down-bg:#FBE3E0;
+  --hm-neg:194,58,46; --hm-pos:31,79,216;
+  --display:"Archivo",system-ui,sans-serif; --body:"Archivo",system-ui,sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,Menlo,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0E131B; --surface:#151C27; --sunk:#1C2533; --line:#2A3546;
+  --fg:#E6EBF2; --muted:#93A0B4; --accent:#6E93FF; --accent-ink:#0B1020;
+  --up:#3CC98A; --down:#FF7B6E; --warn:#F2B04A; --warn-bg:#3A2C10; --up-bg:#123326; --down-bg:#3B1A17;
+  --hm-neg:255,123,110; --hm-pos:110,147,255; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0E131B; --surface:#151C27; --sunk:#1C2533; --line:#2A3546;
+  --fg:#E6EBF2; --muted:#93A0B4; --accent:#6E93FF; --accent-ink:#0B1020;
+  --up:#3CC98A; --down:#FF7B6E; --warn:#F2B04A; --warn-bg:#3A2C10; --up-bg:#123326; --down-bg:#3B1A17;
+  --hm-neg:255,123,110; --hm-pos:110,147,255; color-scheme:dark}
+*{box-sizing:border-box}
+html,body{margin:0}
+[hidden]{display:none!important}
+img{max-width:100%}
+body{background:var(--bg);color:var(--fg);font-family:var(--body);font-size:14px;line-height:1.45}
+.wrap{max-width:1280px;margin:0 auto;padding-inline:16px;padding-block:16px 48px}
+h1,h2,h3{font-family:var(--display);text-wrap:balance;margin:0}
+h1{font-size:28px;font-weight:800;font-stretch:80%;letter-spacing:-.01em}
+h2{font-size:18px;font-weight:700;font-stretch:90%}
+h3{font-size:15px;font-weight:700}
+.num,td.n,.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.muted{color:var(--muted)}
+.label{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-weight:600}
+button,select,input{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+/* cabecera */
+.top{display:flex;flex-wrap:wrap;gap:16px;align-items:flex-end;justify-content:space-between;padding-bottom:16px;border-bottom:1px solid var(--line)}
+.brand{display:flex;flex-direction:column;gap:4px}
+.status{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.pill{display:inline-flex;align-items:center;gap:6px;border-radius:999px;padding:3px 10px;font-size:12px;font-weight:600;background:var(--sunk);color:var(--muted);white-space:nowrap}
+.pill.ok{background:var(--up-bg);color:var(--up)}
+.pill.warn{background:var(--warn-bg);color:var(--warn)}
+.pill.bad{background:var(--down-bg);color:var(--down)}
+.btn{border:1px solid var(--line);background:var(--surface);border-radius:8px;padding:8px 14px;font-weight:600}
+.btn:hover{border-color:var(--accent)}
+.btn.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.btn.small{padding:4px 10px;font-size:12px}
+.clock{display:flex;gap:20px;flex-wrap:wrap}
+.clock div{display:flex;flex-direction:column}
+.clock b{font-family:var(--mono);font-size:20px;font-weight:600}
+
+/* pestañas */
+.tabs{display:flex;gap:4px;margin-block:16px;border-bottom:1px solid var(--line);overflow-x:auto}
+.tab{border:0;background:none;padding:10px 14px;font-weight:600;color:var(--muted);border-bottom:2px solid transparent;white-space:nowrap}
+.tab[aria-selected="true"]{color:var(--fg);border-bottom-color:var(--accent)}
+.tab .count{font-family:var(--mono);font-size:11px;background:var(--sunk);border-radius:6px;padding:1px 6px;margin-left:6px}
+
+.banner{border-radius:10px;padding:12px 14px;background:var(--warn-bg);color:var(--warn);margin-bottom:16px;font-weight:500}
+.banner b{font-weight:700}
+
+/* filtros */
+.filters{display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin-bottom:12px}
+.filters select,.filters input[type=search]{border:1px solid var(--line);background:var(--surface);border-radius:8px;padding:7px 10px}
+.filters label.chk{display:flex;gap:6px;align-items:center;font-size:13px}
+
+/* tablas */
+.tablebox{overflow-x:auto;border:1px solid var(--line);border-radius:10px;background:var(--surface)}
+table{border-collapse:collapse;width:100%;font-size:13px}
+th{position:sticky;top:0;background:var(--surface);text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:600;padding:9px 10px;border-bottom:1px solid var(--line);white-space:nowrap;user-select:none}
+th.sort{cursor:pointer}
+th.sort:hover{color:var(--fg)}
+th.n,td.n{text-align:right}
+td{padding:7px 10px;border-bottom:1px solid var(--line);white-space:nowrap;vertical-align:middle}
+tr:last-child td{border-bottom:0}
+tbody tr{cursor:pointer}
+tbody tr:hover td{background:var(--sunk)}
+tbody tr.sel td{background:color-mix(in srgb,var(--accent) 12%,var(--surface))}
+.tk{font-family:var(--mono);font-weight:600}
+.nm{display:block;font-size:11px;color:var(--muted);max-width:150px;overflow:hidden;text-overflow:ellipsis}
+.up{color:var(--up)} .down{color:var(--down)}
+.chip{display:inline-block;border-radius:6px;padding:1px 7px;font-size:12px;font-weight:600;background:var(--sunk);color:var(--muted)}
+.chip.win{background:var(--up-bg);color:var(--up)}
+.chip.illiq{background:var(--down-bg);color:var(--down)}
+.score{display:inline-flex;align-items:center;gap:6px}
+.bar{display:inline-block;height:6px;border-radius:3px;background:var(--accent)}
+.add{border:1px solid var(--line);background:var(--surface);border-radius:6px;width:26px;height:26px;font-weight:700;line-height:1}
+.add.on{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+
+/* detalle */
+.split{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:16px;align-items:start}
+@media (max-width:980px){.split{grid-template-columns:minmax(0,1fr)}}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:16px;display:flex;flex-direction:column;gap:14px;min-width:0}
+.panel.sticky{position:sticky;top:calc(env(safe-area-inset-top,0px) + 12px)}
+.kv{display:grid;grid-template-columns:1fr 1fr;gap:10px 16px}
+.kv div{display:flex;flex-direction:column;gap:2px}
+.kv b{font-family:var(--mono);font-weight:600;font-size:15px}
+.betarow{display:grid;grid-template-columns:110px 1fr 44px;gap:8px;align-items:center;font-size:12px}
+.betatrack{height:8px;background:var(--sunk);border-radius:4px;position:relative;overflow:hidden}
+.betatrack span{position:absolute;top:0;bottom:0;left:0;background:var(--accent);border-radius:4px}
+.peers{display:flex;flex-direction:column;gap:6px}
+.peer{display:flex;justify-content:space-between;font-size:13px}
+svg.spark{display:block;width:100%;height:auto}
+svg.spark text{fill:var(--muted);font-family:var(--mono);font-size:10px}
+
+/* grupos */
+.groups{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px}
+.group{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:14px;display:flex;flex-direction:column;gap:10px}
+.group header{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+.tkchips{display:flex;flex-wrap:wrap;gap:6px}
+.tkchip{font-family:var(--mono);font-size:12px;font-weight:600;border:1px solid var(--line);border-radius:6px;padding:2px 7px;background:var(--bg)}
+.meter{height:6px;background:var(--sunk);border-radius:3px;overflow:hidden}
+.meter span{display:block;height:100%;background:var(--accent)}
+.hmbox{overflow-x:auto;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:12px}
+#hm{display:block}
+.hmtip{font-family:var(--mono);font-size:12px;min-height:18px}
+.legend{display:flex;align-items:center;gap:8px;font-size:12px}
+.legend i{display:inline-block;width:140px;height:8px;border-radius:4px;background:linear-gradient(90deg,rgba(var(--hm-neg),.85),var(--surface),rgba(var(--hm-pos),.95))}
+.two{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(0,1fr);gap:16px;align-items:start}
+@media (max-width:980px){.two{grid-template-columns:minmax(0,1fr)}}
+
+/* cartera */
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
+.stat{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:12px 14px;display:flex;flex-direction:column;gap:4px}
+.stat b{font-family:var(--mono);font-size:20px;font-weight:600}
+.stat.warnS{border-color:var(--warn)} .stat.badS{border-color:var(--down)}
+input.usd{width:110px;text-align:right;border:1px solid var(--line);border-radius:6px;padding:5px 8px;background:var(--bg);font-family:var(--mono)}
+input.usd.over{border-color:var(--down);color:var(--down)}
+.rules{display:flex;flex-direction:column;gap:6px;font-size:13px}
+.rule{display:flex;gap:8px;align-items:flex-start}
+.dot{width:9px;height:9px;border-radius:50%;margin-top:5px;flex:none;background:var(--up)}
+.dot.w{background:var(--warn)} .dot.b{background:var(--down)}
+textarea{width:100%;min-height:70px;border:1px solid var(--line);border-radius:8px;padding:8px 10px;background:var(--bg);font:inherit;color:inherit;resize:vertical}
+
+/* pasos */
+.steps{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px;counter-reset:s}
+.step{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:16px;display:flex;flex-direction:column;gap:8px}
+.step::before{counter-increment:s;content:counter(s);font-family:var(--mono);font-weight:600;width:28px;height:28px;border-radius:50%;background:var(--accent);color:var(--accent-ink);display:grid;place-items:center}
+.prose{max-width:68ch;display:flex;flex-direction:column;gap:10px}
+.prose p{margin:0}
+code{font-family:var(--mono);font-size:12.5px;background:var(--sunk);border-radius:4px;padding:1px 5px}
+.empty{background:var(--surface);border:1px dashed var(--line);border-radius:12px;padding:28px;display:flex;flex-direction:column;gap:12px;align-items:flex-start}
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(env(safe-area-inset-bottom,0px) + 20px);background:var(--fg);color:var(--bg);padding:10px 16px;border-radius:8px;font-weight:600;z-index:9}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+section{display:flex;flex-direction:column;gap:14px}
+@media (prefers-reduced-motion:no-preference){tbody tr td{transition:background .12s}}
+</style>
+
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div class="brand">
+      <span class="label">Bloomberg Global Trading Challenge 2026</span>
+      <h1>Radar GTC</h1>
+      <div class="status" id="status"><span class="pill">Conectando…</span></div>
+    </div>
+    <div class="clock" id="clock"></div>
+    <div>
+      <a class="btn primary" id="runLink" href="#" target="_blank" rel="noopener" style="text-decoration:none;display:inline-block">Actualizar ahora</a>
+    </div>
+  </header>
+
+  <nav class="tabs" role="tablist" id="tabs">
+    <button class="tab" role="tab" data-tab="ranking" aria-selected="true">Ranking</button>
+    <button class="tab" role="tab" data-tab="grupos" aria-selected="false">Grupos y dependencias</button>
+    <button class="tab" role="tab" data-tab="cartera" aria-selected="false">Cartera del equipo<span class="count" id="cartCount">0</span></button>
+    <button class="tab" role="tab" data-tab="ayuda" aria-selected="false">Cómo actualizar</button>
+  </nav>
+
+  <div id="banner"></div>
+
+  <section id="tab-ranking"></section>
+  <section id="tab-grupos" hidden></section>
+  <section id="tab-cartera" hidden></section>
+  <section id="tab-ayuda" hidden>
+    <div class="prose">
+      <h2>Se actualiza solo</h2>
+      <p>GitHub descarga los datos de Yahoo Finance de lunes a viernes a las 8:30 y a las 18:15 (hora de Chile) y vuelve a publicar esta página. No tienes que hacer nada.</p>
+      <p>Si quieres datos frescos en otro momento, presiona <b>Actualizar ahora</b>, luego <b>Run workflow</b> en GitHub y espera unos 4 minutos. Después recarga esta página.</p>
+      <p class="muted">La cartera y las notas se guardan solo en este navegador. Para una cartera compartida por todo el equipo, usen el panel Radar GTC de Claude.</p>
+      <h2>Cómo leer el puntaje</h2>
+      <p>El puntaje de torneo busca acciones que se pueden mover mucho, no acciones seguras. Suma volatilidad de 20 días (35%), retorno del último mes (25%), short interest (15%) y beta frente al mercado global (10%), todo estandarizado. Suma 1 punto si la empresa reporta resultados entre el 12 de octubre y el 13 de noviembre. Resta 2 puntos si transa menos del mínimo de liquidez.</p>
+      <h2>Antes de comprar, en Bloomberg</h2>
+      <p>Yahoo no sabe qué acciones están en el índice WLS. Revisa cada candidato con <code>MEMB</code> sobre <code>WLS Index</code>, la fecha exacta de resultados con <code>ERN</code> y el movimiento esperado por opciones con <code>OMON</code>.</p>
+      <h2>Cambiar la lista de acciones</h2>
+      <p>En GitHub abre <code>radar_gtc.py</code>, presiona el lápiz y edita la lista <code>SEMILLA</code>. Guarda con <b>Commit changes</b>. La próxima actualización usa la lista nueva.</p>
+    </div>
+  </section>
+</div>
+<div class="toast" id="toast" hidden></div>
+
+<script>
+(function(){
+const VENTANA_INI=new Date("2026-10-12T00:00:00"), VENTANA_FIN=new Date("2026-11-13T23:59:59");
+const CAPITAL=1000000, MAXPOS=200000;
+const $=s=>document.querySelector(s);
+const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const fmt=(v,d=1)=>v==null||isNaN(v)?"–":Number(v).toLocaleString("es-CL",{minimumFractionDigits:d,maximumFractionDigits:d});
+const pct=(v,d=1)=>v==null?"–":`<span class="${v>=0?"up":"down"}">${v>0?"+":""}${fmt(v,d)}%</span>`;
+const usd=v=>"$"+Math.round(v||0).toLocaleString("es-CL");
+const MES=["ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","dic"];
+const fecha=s=>{if(!s)return"–";const[y,m,d]=s.split("-");return`${+d} ${MES[+m-1]}`};
+
+let D=null, db=null, cart={items:[],nota:""}, sortKey="rank", sortDir=1, sel=null;
+let filtro={tema:"",ventana:false,liquida:true,q:""};
+let byT={};
+
+function toast(msg){const t=$("#toast");t.textContent=msg;t.hidden=false;clearTimeout(toast.h);toast.h=setTimeout(()=>t.hidden=true,2600)}
+
+/* ---------- reloj del desafío ---------- */
+function habiles(a,b){let n=0;const d=new Date(a);d.setHours(0,0,0,0);while(d<=b){const w=d.getDay();if(w&&w<6)n++;d.setDate(d.getDate()+1)}return n}
+function renderClock(){
+  const hoy=new Date(), total=habiles(VENTANA_INI,VENTANA_FIN);
+  let html;
+  if(hoy<VENTANA_INI){const dias=Math.ceil((VENTANA_INI-hoy)/864e5);html=`<div><span class="label">Parte en</span><b>${dias} ${dias===1?"día":"días"}</b></div><div><span class="label">Duración</span><b>${total} hábiles</b></div>`}
+  else if(hoy>VENTANA_FIN){html=`<div><span class="label">Desafío</span><b>Terminado</b></div>`}
+  else{const hechos=habiles(VENTANA_INI,hoy),quedan=total-hechos;html=`<div><span class="label">Día hábil</span><b>${hechos} / ${total}</b></div><div><span class="label">Quedan</span><b>${quedan} hábiles</b></div>`}
+  $("#clock").innerHTML=html;
+}
+
+/* ---------- estado de datos ---------- */
+function renderStatus(){
+  const st=$("#status");
+  if(!D){st.innerHTML=`<span class="pill">Sin datos todavía</span>`;return}
+  const g=new Date(D.generado), horas=(Date.now()-g)/36e5;
+  const cuando=g.toLocaleString("es-CL",{day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"});
+  let p;
+  if(D.demo)p=`<span class="pill bad">Datos de ejemplo simulados</span>`;
+  else if(horas>30)p=`<span class="pill warn">Desactualizado · ${Math.floor(horas/24)} d</span>`;
+  else p=`<span class="pill ok">Al día</span>`;
+  st.innerHTML=`${p}<span class="pill">${esc(D.fuente)} · ${cuando}</span><span class="pill">${D.acciones.length} acciones</span>`;
+  $("#banner").innerHTML=D.demo?`<div class="banner"><b>Estos números son de ejemplo.</b> Sirven para ver cómo funciona el panel. Presiona <b>Actualizar ahora</b> y luego <b>Run workflow</b> para traer datos reales de Yahoo Finance.</div>`:"";
+}
+
+/* ---------- sparkline ---------- */
+function spark(vals,w=120,h=28,big=false){
+  const v=(vals||[]).filter(x=>x!=null); if(v.length<2)return"";
+  const mn=Math.min(...v),mx=Math.max(...v),rg=mx-mn||1,pad=big?14:2,top=big?8:2;
+  const X=i=>pad+i*(w-pad*2)/(v.length-1),Y=x=>top+(h-top-(big?14:2))*(1-(x-mn)/rg);
+  const pts=v.map((x,i)=>`${X(i).toFixed(1)},${Y(x).toFixed(1)}`).join(" ");
+  const c=v[v.length-1]>=v[0]?"var(--up)":"var(--down)";
+  const area=`${X(0)},${h-(big?14:2)} ${pts} ${X(v.length-1)},${h-(big?14:2)}`;
+  let lab="";
+  if(big){const f=D.fechas||[];lab=`<text x="${pad}" y="${h-2}">${fecha(f[f.length-v.length])}</text><text x="${w-pad}" y="${h-2}" text-anchor="end">${fecha(f[f.length-1])}</text><text x="${w-pad}" y="${top+8}" text-anchor="end">${fmt(mx,2)}</text>`}
+  return`<svg class="spark" viewBox="0 0 ${w} ${h}" ${big?"":`style="width:${w}px"`} aria-hidden="true"><polygon points="${area}" fill="${c}" fill-opacity=".12"/><polyline points="${pts}" fill="none" stroke="${c}" stroke-width="${big?1.8:1.3}"/><circle cx="${X(v.length-1)}" cy="${Y(v[v.length-1])}" r="${big?3:2}" fill="${c}"/>${lab}</svg>`;
+}
+
+/* ---------- ranking ---------- */
+const COLS=[
+  ["rank","#",1],["t","Acción",0],["tema","Tema",0],["precio","Precio",1],["r1s","1 sem",1],["r1m","1 mes",1],["r3m","3 meses",1],
+  ["vol20","Vol 20d",1],["earn","Resultados",0],["short","Short %",1],["beta","Beta",1],["driver","Depende de",0],["puntaje","Puntaje",1]
+];
+function filas(){
+  let a=D.acciones.filter(x=>(!filtro.tema||x.tema===filtro.tema)&&(!filtro.ventana||x.enVentana)&&(!filtro.liquida||(x.liq??0)>=D.liqMin)&&(!filtro.q||(x.t+" "+x.nombre).toLowerCase().includes(filtro.q)));
+  a.sort((p,q)=>{const A=p[sortKey],B=q[sortKey];if(A==null)return 1;if(B==null)return-1;return(A>B?1:A<B?-1:0)*sortDir});
+  return a;
+}
+function renderRanking(){
+  const el=$("#tab-ranking");
+  if(!D){el.innerHTML=emptyState();return}
+  const temas=[...new Set(D.acciones.map(a=>a.tema))].sort();
+  const maxS=Math.max(...D.acciones.map(a=>a.puntaje||0),1);
+  const enCart=new Set(cart.items.map(i=>i.t));
+  const rows=filas().map(a=>`<tr data-t="${a.t}" class="${sel===a.t?"sel":""}">
+    <td class="n muted">${a.rank}</td>
+    <td><span class="tk">${esc(a.t)}</span><span class="nm">${esc(a.nombre)}</span></td>
+    <td>${esc(a.tema)}</td>
+    <td class="n">${fmt(a.precio,2)}</td><td class="n">${pct(a.r1s)}</td><td class="n">${pct(a.r1m)}</td><td class="n">${pct(a.r3m)}</td>
+    <td class="n">${fmt(a.vol20,0)}%</td>
+    <td>${a.earn?`<span class="chip ${a.enVentana?"win":""}">${fecha(a.earn)}</span>`:'<span class="muted">–</span>'}${(a.liq??0)<D.liqMin?' <span class="chip illiq">poca liquidez</span>':""}</td>
+    <td class="n">${a.short==null?"–":fmt(a.short,1)}</td><td class="n">${fmt(a.beta,2)}</td>
+    <td>${esc(D.drivers[a.driver]||a.driver)}</td>
+    <td class="n"><span class="score"><span class="bar" style="width:${Math.max(2,40*(a.puntaje||0)/maxS)}px"></span>${fmt(a.puntaje,2)}</span></td>
+    <td>${spark(a.hist)}</td>
+    <td><button class="add ${enCart.has(a.t)?"on":""}" data-add="${a.t}" type="button" aria-label="${enCart.has(a.t)?"Quitar de":"Agregar a"} la cartera">${enCart.has(a.t)?"✓":"+"}</button></td>
+  </tr>`).join("");
+  const n=filas().length;
+  el.innerHTML=`
+  <div class="filters">
+    <input type="search" id="fq" placeholder="Buscar ticker o nombre" value="${esc(filtro.q)}" aria-label="Buscar">
+    <select id="ft" aria-label="Tema"><option value="">Todos los temas</option>${temas.map(t=>`<option ${t===filtro.tema?"selected":""}>${esc(t)}</option>`).join("")}</select>
+    <label class="chk"><input type="checkbox" id="fv" ${filtro.ventana?"checked":""}> Solo con resultados en la ventana</label>
+    <label class="chk"><input type="checkbox" id="fl" ${filtro.liquida?"checked":""}> Solo líquidas (≥ US$${D.liqMin} mm/día)</label>
+    <span class="muted">${n} de ${D.acciones.length}</span>
+  </div>
+  <div class="split">
+    <div class="tablebox"><table>
+      <thead><tr>${COLS.map(([k,l,num])=>`<th class="sort ${num?"n":""}" data-k="${k}">${l}${sortKey===k?(sortDir>0?" ↑":" ↓"):""}</th>`).join("")}<th>60 días</th><th><span class="sr">Cartera</span></th></tr></thead>
+      <tbody>${rows||`<tr><td colspan="15" class="muted" style="padding:20px">Ninguna acción cumple los filtros.</td></tr>`}</tbody>
+    </table></div>
+    <aside class="panel sticky" id="detail">${detalle()}</aside>
+  </div>`;
+  $("#fq").oninput=e=>{filtro.q=e.target.value.toLowerCase();renderRanking();$("#fq").focus();const v=$("#fq").value;$("#fq").setSelectionRange(v.length,v.length)};
+  $("#ft").onchange=e=>{filtro.tema=e.target.value;renderRanking()};
+  $("#fv").onchange=e=>{filtro.ventana=e.target.checked;renderRanking()};
+  $("#fl").onchange=e=>{filtro.liquida=e.target.checked;renderRanking()};
+  el.querySelectorAll("th.sort").forEach(th=>th.onclick=()=>{const k=th.dataset.k;if(sortKey===k)sortDir*=-1;else{sortKey=k;sortDir=["rank","t","tema","earn","driver"].includes(k)?1:-1}renderRanking()});
+  el.querySelectorAll("tbody tr[data-t]").forEach(tr=>tr.onclick=e=>{if(e.target.closest("[data-add]"))return;sel=tr.dataset.t;renderRanking()});
+  el.querySelectorAll("[data-add]").forEach(b=>b.onclick=()=>toggleCart(b.dataset.add));
+}
+function peers(t,n=5){
+  const C=D.corr,i=C.tickers.indexOf(t);if(i<0)return[];
+  return C.tickers.map((u,j)=>[u,C.m[i][j]]).filter(([u])=>u!==t).sort((a,b)=>b[1]-a[1]).slice(0,n);
+}
+function detalle(){
+  const a=byT[sel]||filas()[0]; if(!a)return`<p class="muted">Elige una acción para ver el detalle.</p>`;
+  sel=a.t;
+  const g=D.grupos.find(x=>x.g===a.grupo);
+  const betas=Object.entries(a.betas||{});
+  const mb=Math.max(2,...betas.map(([,v])=>Math.abs(v||0)));
+  const enCart=cart.items.some(i=>i.t===a.t);
+  return`<div><span class="label">${esc(a.tema)} · ${esc(a.pais||"")}</span><h2><span class="tk">${esc(a.t)}</span> ${esc(a.nombre)}</h2></div>
+  ${spark(a.hist,300,96,true)}
+  <div class="kv">
+    <div><span class="label">Precio</span><b>${fmt(a.precio,2)}</b></div>
+    <div><span class="label">Market cap</span><b>${a.mcap?usd(a.mcap)+" mm":"–"}</b></div>
+    <div><span class="label">Vol. diario</span><b>${a.liq?usd(a.liq)+" mm":"–"}</b></div>
+    <div><span class="label">Caída desde máx. 3m</span><b>${pct(a.dd3m)}</b></div>
+    <div><span class="label">Resultados</span><b>${fecha(a.earn)}${a.enVentana?" ✓":""}</b></div>
+    <div><span class="label">Grupo</span><b>G${a.grupo}</b></div>
+  </div>
+  <div style="display:flex;flex-direction:column;gap:6px"><span class="label">Sensibilidad (beta 90 días)</span>
+    ${betas.map(([k,v])=>`<div class="betarow"><span>${esc(D.drivers[k]||k)}${k===a.driver?" ●":""}</span><span class="betatrack"><span style="width:${Math.min(100,100*Math.abs(v||0)/mb)}%"></span></span><span class="num" style="text-align:right">${fmt(v,2)}</span></div>`).join("")}
+  </div>
+  <div style="display:flex;flex-direction:column;gap:6px"><span class="label">Se mueve junto con</span>
+    <div class="peers">${peers(a.t).map(([u,c])=>`<div class="peer"><span class="tk">${esc(u)}</span><span class="num">${fmt(c,2)}</span></div>`).join("")}</div>
+    ${g&&g.tickers.length>1?`<span class="muted" style="font-size:12px">Grupo G${g.g}: ${g.tickers.length} acciones con correlación interna ${fmt(g.corr,2)}.</span>`:""}
+  </div>
+  <button class="btn ${enCart?"":"primary"}" type="button" data-add="${a.t}">${enCart?"Quitar de la cartera":"Agregar a la cartera"}</button>`;
+}
+
+/* ---------- grupos ---------- */
+function renderGrupos(){
+  const el=$("#tab-grupos");
+  if(!D){el.innerHTML=emptyState();return}
+  const pares=[];const C=D.corr;
+  for(let i=0;i<C.tickers.length;i++)for(let j=i+1;j<C.tickers.length;j++)if(C.m[i][j]!=null)pares.push([C.tickers[i],C.tickers[j],C.m[i][j]]);
+  pares.sort((a,b)=>b[2]-a[2]);
+  const multi=D.grupos.filter(g=>g.tickers.length>1), solos=D.grupos.filter(g=>g.tickers.length===1);
+  el.innerHTML=`
+  <div class="prose"><p class="muted">Cada grupo reúne acciones que se mueven como bloque en los últimos 90 días. Cinco acciones del mismo grupo equivalen a una sola apuesta grande: más riesgo y más potencial. Repartirlas entre grupos baja la volatilidad de la cartera.</p></div>
+  <div class="groups">${multi.map(g=>`<article class="group">
+    <header><h3>Grupo G${g.g}</h3><span class="muted">${g.tickers.length} acciones</span></header>
+    <div class="tkchips">${g.tickers.map(t=>`<span class="tkchip">${esc(t)}</span>`).join("")}</div>
+    <div style="display:flex;flex-direction:column;gap:4px"><span class="label">Correlación interna ${fmt(g.corr,2)}</span><div class="meter"><span style="width:${Math.max(0,(g.corr||0)*100)}%"></span></div></div>
+    <span class="muted" style="font-size:12px">${g.temas.map(esc).join(" · ")}</span>
+  </article>`).join("")}
+  ${solos.length?`<article class="group"><header><h3>Independientes</h3><span class="muted">${solos.length}</span></header><div class="tkchips">${solos.map(g=>`<span class="tkchip">${esc(g.tickers[0])}</span>`).join("")}</div><span class="muted" style="font-size:12px">No se parecen a ninguna otra de la lista.</span></article>`:""}
+  </div>
+  <div class="two">
+    <div class="hmbox"><div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:8px"><h3>Mapa de correlaciones</h3><span class="legend"><span>−</span><i></i><span>+1</span></span></div>
+      <canvas id="hm"></canvas><div class="hmtip muted" id="hmtip">Pasa el cursor o toca una celda.</div></div>
+    <div class="tablebox"><table><thead><tr><th>Par más dependiente</th><th class="n">Correlación</th></tr></thead>
+      <tbody>${pares.slice(0,20).map(([a,b,c])=>`<tr><td><span class="tk">${esc(a)}</span> <span class="muted">con</span> <span class="tk">${esc(b)}</span></td><td class="n">${fmt(c,2)}</td></tr>`).join("")}</tbody></table></div>
+  </div>`;
+  drawHM();
+}
+function drawHM(){
+  const cv=$("#hm");if(!cv)return;
+  const C=D.corr,n=C.tickers.length,lab=46,cell=Math.max(9,Math.min(14,Math.floor((Math.min(720,cv.parentElement.clientWidth-24)-lab)/n)));
+  const W=lab+n*cell,H=lab+n*cell,dpr=window.devicePixelRatio||1;
+  cv.width=W*dpr;cv.height=H*dpr;cv.style.width=W+"px";cv.style.height=H+"px";
+  const x=cv.getContext("2d");x.scale(dpr,dpr);
+  const cs=getComputedStyle(document.documentElement);
+  const pos=cs.getPropertyValue("--hm-pos").trim(),neg=cs.getPropertyValue("--hm-neg").trim(),fg=cs.getPropertyValue("--muted").trim(),sf=cs.getPropertyValue("--surface").trim();
+  x.fillStyle=sf;x.fillRect(0,0,W,H);
+  for(let i=0;i<n;i++)for(let j=0;j<n;j++){const v=C.m[i][j];if(v==null)continue;x.fillStyle=`rgba(${v>=0?pos:neg},${Math.min(1,Math.abs(v))*.95})`;x.fillRect(lab+j*cell,lab+i*cell,cell-1,cell-1)}
+  x.fillStyle=fg;x.font=`${Math.min(10,cell-1)}px JetBrains Mono, monospace`;x.textBaseline="middle";
+  for(let i=0;i<n;i++){x.textAlign="right";x.fillText(C.tickers[i],lab-4,lab+i*cell+cell/2);x.save();x.translate(lab+i*cell+cell/2,lab-4);x.rotate(-Math.PI/2);x.textAlign="left";x.fillText(C.tickers[i],0,0);x.restore()}
+  const tip=$("#hmtip");
+  const hit=e=>{const r=cv.getBoundingClientRect(),j=Math.floor((e.clientX-r.left-lab)/cell),i=Math.floor((e.clientY-r.top-lab)/cell);if(i>=0&&j>=0&&i<n&&j<n)tip.textContent=`${C.tickers[i]} / ${C.tickers[j]}: ${fmt(C.m[i][j],2)}`};
+  cv.onmousemove=hit;cv.onclick=hit;
+}
+
+/* ---------- cartera ---------- */
+function toggleCart(t){
+  const i=cart.items.findIndex(x=>x.t===t);
+  if(i>=0)cart.items.splice(i,1);else cart.items.push({t,usd:MAXPOS,wls:false});
+  saveCart();renderAll();toast(i>=0?`${t} quitada de la cartera`:`${t} agregada con ${usd(MAXPOS)}`);
+}
+function cartStats(){
+  const it=cart.items.filter(i=>byT[i.t]);
+  const tot=it.reduce((s,i)=>s+(+i.usd||0),0);
+  const w=it.map(i=>(+i.usd||0)/CAPITAL);
+  const C=D.corr,idx=it.map(i=>C.tickers.indexOf(i.t));
+  let varp=0,cs=0,cn=0;
+  for(let a=0;a<it.length;a++)for(let b=0;b<it.length;b++){
+    const sa=(byT[it[a].t].vol20||0)/100,sb=(byT[it[b].t].vol20||0)/100;
+    const r=a===b?1:(idx[a]>=0&&idx[b]>=0?(C.m[idx[a]][idx[b]]??0):0);
+    varp+=w[a]*w[b]*sa*sb*r; if(a<b){cs+=r;cn++}
+  }
+  const vol=Math.sqrt(Math.max(varp,0)), v5=vol*Math.sqrt(25/252);
+  const grupos=new Set(it.map(i=>byT[i.t].grupo)).size;
+  return{it,tot,caja:CAPITAL-tot,vol,v5,corr:cn?cs/cn:null,grupos,enV:it.filter(i=>byT[i.t].enVentana).length};
+}
+function renderCartera(){
+  const el=$("#tab-cartera");$("#cartCount").textContent=cart.items.length;
+  if(!D){el.innerHTML=emptyState();return}
+  const s=cartStats();
+  const over=s.it.filter(i=>(+i.usd||0)>MAXPOS);
+  const reglas=[
+    [s.tot<=CAPITAL?"":"b",s.tot<=CAPITAL?`Total invertido ${usd(s.tot)} dentro del capital de ${usd(CAPITAL)}.`:`Te pasas por ${usd(s.tot-CAPITAL)}. TMSG rechazará la orden por caja insuficiente.`],
+    [over.length?"b":"",over.length?`${over.map(i=>i.t).join(", ")} supera${over.length>1?"n":""} el máximo de ${usd(MAXPOS)} por acción.`:`Ninguna posición supera ${usd(MAXPOS)} (20%).`],
+    [s.caja>50000?"w":"",s.caja>50000?`Quedan ${usd(s.caja)} en caja. Si el índice sube, la caja te resta en el ranking relativo.`:`Caja ociosa baja: ${usd(Math.max(0,s.caja))}.`],
+    [s.it.every(i=>i.wls)?"":"w",s.it.every(i=>i.wls)?"Todas confirmadas en el índice WLS.":`Falta confirmar en Bloomberg que ${s.it.filter(i=>!i.wls).map(i=>i.t).join(", ")||"–"} esté${s.it.filter(i=>!i.wls).length>1?"n":""} en el WLS.`],
+  ];
+  const tipo=s.corr==null?"–":s.corr>=.5?"Apuesta concentrada en un tema":s.corr>=.25?"Mezcla con temas relacionados":"Diversificada";
+  el.innerHTML=s.it.length?`
+  <div class="stats">
+    <div class="stat ${s.tot>CAPITAL?"badS":""}"><span class="label">Invertido</span><b>${usd(s.tot)}</b><span class="muted">${fmt(100*s.tot/CAPITAL,0)}% del capital</span></div>
+    <div class="stat ${s.caja>50000?"warnS":""}"><span class="label">Caja</span><b>${usd(s.caja)}</b></div>
+    <div class="stat"><span class="label">Volatilidad anual estimada</span><b>${fmt(100*s.vol,0)}%</b><span class="muted">Rango típico en 5 semanas ±${fmt(100*s.v5,0)}%</span></div>
+    <div class="stat"><span class="label">Correlación promedio</span><b>${fmt(s.corr,2)}</b><span class="muted">${tipo} · ${s.grupos} grupo${s.grupos===1?"":"s"}</span></div>
+    <div class="stat"><span class="label">Con resultados en ventana</span><b>${s.enV} / ${s.it.length}</b></div>
+  </div>
+  <div class="two">
+    <div class="tablebox"><table>
+      <thead><tr><th>Acción</th><th>Grupo</th><th class="n">Monto US$</th><th class="n">% capital</th><th class="n">Vol 20d</th><th>Resultados</th><th>En WLS</th><th></th></tr></thead>
+      <tbody>${s.it.map(i=>{const a=byT[i.t],v=+i.usd||0;return`<tr>
+        <td><span class="tk">${esc(a.t)}</span><span class="nm">${esc(a.nombre)}</span></td><td>G${a.grupo}</td>
+        <td class="n"><input class="usd ${v>MAXPOS?"over":""}" id="usd-${a.t}" data-usd="${a.t}" inputmode="numeric" value="${v}" aria-label="Monto ${a.t}"></td>
+        <td class="n">${fmt(100*v/CAPITAL,1)}%</td><td class="n">${fmt(a.vol20,0)}%</td>
+        <td>${a.earn?`<span class="chip ${a.enVentana?"win":""}">${fecha(a.earn)}</span>`:"–"}</td>
+        <td><input type="checkbox" id="wls-${a.t}" data-wls="${a.t}" ${i.wls?"checked":""} aria-label="${a.t} confirmada en WLS"></td>
+        <td><button class="btn small" data-add="${a.t}" type="button">Quitar</button></td></tr>`}).join("")}</tbody>
+    </table></div>
+    <div class="panel">
+      <h3>Reglas del desafío</h3>
+      <div class="rules">${reglas.map(([c,t])=>`<div class="rule"><span class="dot ${c}"></span><span>${esc(t)}</span></div>`).join("")}</div>
+      <label class="label" for="nota">Notas del equipo</label>
+      <textarea id="nota" placeholder="Tesis, catalizadores, cuándo vender…">${esc(cart.nota)}</textarea>
+      <span class="muted" style="font-size:12px">La cartera y las notas se guardan en este navegador.</span>
+    </div>
+  </div>`:`<div class="empty"><h2>La cartera del equipo está vacía</h2><p class="muted">En la pestaña Ranking, presiona + en una acción para agregarla con ${usd(MAXPOS)}. Aquí verás si cumples las reglas, cuánta caja queda y cuán concentrada es la apuesta.</p><button class="btn primary" type="button" id="goRank">Ir al ranking</button></div>`;
+  el.querySelectorAll("[data-usd]").forEach(inp=>inp.onchange=()=>{const it=cart.items.find(x=>x.t===inp.dataset.usd);it.usd=Math.max(0,Math.round(+String(inp.value).replace(/[^\d]/g,"")||0));saveCart();renderCartera()});
+  el.querySelectorAll("[data-wls]").forEach(c=>c.onchange=()=>{cart.items.find(x=>x.t===c.dataset.wls).wls=c.checked;saveCart();renderCartera()});
+  el.querySelectorAll("[data-add]").forEach(b=>b.onclick=()=>toggleCart(b.dataset.add));
+  const n=$("#nota");if(n)n.oninput=()=>{cart.nota=n.value;clearTimeout(n.h);n.h=setTimeout(saveCart,800)};
+  const g=$("#goRank");if(g)g.onclick=()=>setTab("ranking");
+}
+
+/* ---------- persistencia ---------- */
+let saving=Promise.resolve();
+function saveCart(){
+  const body={items:cart.items,nota:cart.nota,actualizado:new Date().toISOString()};
+  if(!db){try{localStorage.setItem("gtc-cart",JSON.stringify(body))}catch(e){}return}
+  saving=saving.then(()=>db.doc("cartera/equipo").set(body)).catch(e=>toast(e.code==="not_granted"?"Solo lectura: no puedes editar la cartera.":"No se pudo guardar la cartera."));
+}
+async function cargarArchivo(f){
+  let d;
+  try{d=JSON.parse((await f.text()).replace(/(?<![\w"])-?(NaN|Infinity)(?![\w"])/g,"null"))}catch(e){toast("El archivo no se pudo leer. Vuelve a correr el cuaderno y sube el archivo nuevo.");return}
+  if(!d||!Array.isArray(d.acciones)||!d.corr){toast("Ese archivo no es radar_gtc.json del cuaderno de Colab.");return}
+  setData(d);
+  if(db){try{await db.doc("radar/actual").set({json:JSON.stringify(d),generado:d.generado,demo:!!d.demo,subido:new Date().toISOString()});toast("Datos cargados para todo el equipo.")}
+    catch(e){toast(e.code==="not_granted"?"Datos cargados solo en tu pantalla: no tienes permiso de edición.":"Datos cargados solo en tu pantalla: no se pudieron guardar.")}}
+  else toast("Datos cargados en esta pantalla.");
+}
+function setData(d){D=d;byT={};d.acciones.forEach(a=>byT[a.t]=a);if(sel&&!byT[sel])sel=null;renderAll()}
+
+/* ---------- UI general ---------- */
+function emptyState(){return`<div class="empty"><h2>Todavía no hay datos cargados</h2><p class="muted">La primera actualización de GitHub todavía no termina. Presiona <b>Actualizar ahora</b>, luego <b>Run workflow</b>, espera unos 4 minutos y recarga esta página.</p><button class="btn" type="button" onclick="document.querySelector('[data-tab=ayuda]').click()">Cómo funciona</button></div>`}
+function setTab(t){document.querySelectorAll(".tab").forEach(b=>b.setAttribute("aria-selected",b.dataset.tab===t));["ranking","grupos","cartera","ayuda"].forEach(k=>$("#tab-"+k).hidden=k!==t);if(t==="grupos"&&D)drawHM();try{localStorage.setItem("gtc-tab",t)}catch(e){}}
+function renderAll(){renderStatus();renderClock();renderRanking();renderGrupos();renderCartera()}
+document.querySelectorAll(".tab").forEach(b=>b.onclick=()=>setTab(b.dataset.tab));
+(function(){const m=location.hostname.match(/^([^.]+)\.github\.io$/),repo=location.pathname.split("/").filter(Boolean)[0];
+  $("#runLink").href=m&&repo?`https://github.com/${m[1]}/${repo}/actions/workflows/actualizar.yml`:"https://github.com";})();
+window.matchMedia("(prefers-color-scheme: dark)").addEventListener?.("change",()=>D&&drawHM());
+try{const t=localStorage.getItem("gtc-tab");if(t)setTab(t)}catch(e){}
+try{const c=JSON.parse(localStorage.getItem("gtc-cart")||"null");if(c)cart=c}catch(e){}
+renderAll();
+
+(async()=>{
+  try{const r=await fetch("radar_gtc.json?v="+Date.now(),{cache:"no-store"});if(!r.ok)throw 0;
+    setData(JSON.parse((await r.text()).replace(/(?<![\w"])-?(NaN|Infinity)(?![\w"])/g,"null")));}
+  catch(e){D=null;renderAll()}
+})();
+})();
+</script>
+
+</body>
+</html>
