@@ -85,12 +85,68 @@ def descargar(tickers):
     raise SystemExit("Yahoo no entrego precios suficientes. Se mantiene la version anterior.")
 
 
-def leer_noticias(tk):
+def _rss(url, fuente_def):
+    """Lee un feed RSS (Yahoo Finance o Google News) sin librerias extra."""
+    import urllib.request
+    import xml.etree.ElementTree as ET
+    from email.utils import parsedate_to_datetime
+    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (radar-gtc)"})
+    with urllib.request.urlopen(req, timeout=15) as resp:
+        root = ET.fromstring(resp.read())
     out = []
+    for item in root.iter("item"):
+        titulo = (item.findtext("title") or "").strip()
+        url_n = (item.findtext("link") or "").strip()
+        src = item.find("source")
+        fuente = (src.text if src is not None and src.text else fuente_def)
+        if fuente_def == "Google News" and " - " in titulo:  # Google agrega " - Medio" al titulo
+            titulo, fuente = titulo.rsplit(" - ", 1)
+        fecha = ""
+        try:
+            fecha = parsedate_to_datetime(item.findtext("pubDate")).isoformat()[:16]
+        except Exception:
+            pass
+        if titulo and url_n:
+            out.append({"titulo": titulo, "fuente": fuente, "url": url_n, "fecha": fecha})
+        if len(out) >= NOTICIAS_POR_EMPRESA:
+            break
+    return out
+
+
+def leer_noticias(tk, t=None, nombre=None):
+    """Prueba varias fuentes hasta conseguir noticias."""
+    import urllib.parse
+    out = _noticias_yf(tk)
+    if not out:
+        try:
+            import yfinance as yf
+            out = _noticias_items(yf.Search(t, news_count=NOTICIAS_POR_EMPRESA).news or [])
+        except Exception:
+            out = []
+    if not out and t:
+        try:
+            out = _rss(f"https://feeds.finance.yahoo.com/rss/2.0/headline?s={t}&region=US&lang=en-US",
+                       "Yahoo Finance")
+        except Exception:
+            out = []
+    if not out and t:
+        try:
+            q = urllib.parse.quote(f'"{nombre or t}" {t} stock')
+            out = _rss(f"https://news.google.com/rss/search?q={q}&hl=en-US&gl=US&ceid=US:en", "Google News")
+        except Exception:
+            out = []
+    return out
+
+
+def _noticias_yf(tk):
     try:
-        items = tk.news or []
+        return _noticias_items(tk.news or [])
     except Exception:
-        return out
+        return []
+
+
+def _noticias_items(items):
+    out = []
     for it in items:
         c = it.get("content") if isinstance(it, dict) else None
         if c:  # formato nuevo de yfinance
@@ -142,11 +198,16 @@ def info_de(tickers):
             fechas = cal.get("Earnings Date") if isinstance(cal, dict) else None
             if fechas:
                 f["earn"] = pd.to_datetime(fechas[0]).date().isoformat()
-            f["noticias"] = leer_noticias(tk)
         except Exception as e:
             print(f"\n  aviso: {t} sin datos ({e.__class__.__name__})")
+        try:
+            f["noticias"] = leer_noticias(yf.Ticker(t), t, f.get("nombre"))
+        except Exception:
+            f["noticias"] = []
         filas[t] = f
     print()
+    con = sum(1 for v in filas.values() if v.get("noticias"))
+    print(f"Noticias: {con} de {len(filas)} empresas con noticias")
     return filas
 
 
