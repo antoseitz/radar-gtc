@@ -107,6 +107,7 @@ section{display:flex;flex-direction:column;gap:18px}
 .day .chips{display:flex;flex-wrap:wrap;gap:3px}
 .tchip{font-family:var(--mono);font-size:11px;font-weight:650;border-radius:5px;padding:1px 6px;background:var(--accent-soft);color:var(--accent);border:0}
 .tchip:hover{background:var(--accent);color:var(--accent-ink)}
+.mchip{font-size:11px;font-weight:700;border-radius:5px;padding:1px 6px;background:var(--warn-bg);color:var(--warn);white-space:nowrap}
 .day.end{background:var(--down-bg)}
 .day.end .dn{color:var(--down);font-weight:700}
 
@@ -134,6 +135,20 @@ section{display:flex;flex-direction:column;gap:18px}
 .btrack .b.neg{right:50%;background:var(--down);border-radius:4px 0 0 4px}
 .bname{font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bname small{display:block;font-weight:400;color:var(--muted);font-size:11px}
+
+/* contagio */
+.ctgs{display:flex;flex-direction:column}
+.ctg{display:grid;grid-template-columns:minmax(150px,200px) 20px minmax(0,1fr);gap:10px;align-items:start;padding:10px 0;border-top:1px solid var(--line-soft)}
+.ctg:first-child{border-top:0}
+.ctg-l{display:flex;flex-direction:column;gap:3px;align-items:flex-start}
+.ctg-d{font-size:12px;font-weight:600}
+.ctg-arrow{color:var(--faint);font-size:18px;line-height:1.4}
+.ctg-f{display:flex;flex-wrap:wrap;gap:8px 14px}
+.ctg-s{display:flex;flex-direction:column;gap:2px;align-items:flex-start}
+.ctg-s small{font-size:11px;color:var(--muted)}
+.ctg-row{display:flex;gap:10px;align-items:center;padding:7px 0;border-top:1px solid var(--line-soft);font-size:13px}
+.ctg-row:first-child{border-top:0}
+@media (max-width:640px){.ctg{grid-template-columns:minmax(0,1fr)}.ctg-arrow{display:none}}
 
 /* tabla acciones */
 .filters{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
@@ -261,6 +276,9 @@ code{font-family:var(--mono);font-size:12.5px;background:var(--sunk);border-radi
       <p><b>Volumen inusual.</b> Cuántas veces se transó esta semana comparado con su promedio de 50 días. Sobre 1,8x suele haber una noticia detrás.</p>
       <p><b>Short interest.</b> Porcentaje de acciones apostadas a la baja. Si es alto y llega una buena noticia, el precio puede dispararse cuando esos inversionistas cierran sus apuestas.</p>
       <p><b>Kronos.</b> Modelo de IA open source entrenado con velas de 45 bolsas. Cada día simula 20 escenarios de precio para los próximos 10 días hábiles. <i>Movimiento típico</i> es cuánto suele variar el precio en esos escenarios; el abanico muestra el rango probable. Úsalo para medir riesgo y potencial de movimiento, no como predicción de dirección.</p>
+      <p><b>Tasas de interés.</b> La columna <i>Tasas</i> muestra cuánto suele moverse cada acción cuando la tasa del bono a 10 años de EE.UU. sube 0,10 puntos porcentuales (10 pb), según el último año. Negativo significa que cae cuando suben las tasas. Los eventos macro del calendario (inflación, empleo, Fed) son los días en que las tasas más se mueven.</p>
+      <p><b>Monte Carlo.</b> En la pestaña Cartera, simula 4.000 caminos posibles hasta el cierre del desafío con la volatilidad real de cada acción, sus correlaciones, su relación con el mercado y un salto en el día de su reporte. Responde "¿qué probabilidad tengo de superar al índice por X%?". El buscador prueba cientos de combinaciones de 5 acciones y muestra las que más probabilidad tienen de llegar a tu meta. No predice la dirección: todas las acciones parten con la misma expectativa que el mercado.</p>
+      <p><b>Efecto contagio.</b> Para cada empresa se revisaron sus reportes de resultados de los últimos ~3 años y se midió qué otras acciones se movieron hacia el mismo lado ese día. Sirve para anticipar: si una empresa grande reporta bien, sus proveedores y competidores que aún no reportan suelen subir. Solo se muestran relaciones que se repitieron al menos 70% de las veces.</p>
       <p><b>Grupos.</b> Acciones que se mueven juntas en los últimos 90 días. Cinco del mismo grupo son una sola apuesta grande.</p>
       <h2>Antes de comprar, en Bloomberg</h2>
       <p>Yahoo no sabe qué acciones están en el índice WLS. Revisa cada candidato con <code>MEMB</code> sobre <code>WLS Index</code>, confirma la fecha de resultados con <code>ERN</code> y el movimiento esperado por opciones con <code>OMON</code>.</p>
@@ -281,10 +299,13 @@ const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&g
 const fmt=(v,d=1)=>v==null||isNaN(v)?"–":Number(v).toLocaleString("es-CL",{minimumFractionDigits:d,maximumFractionDigits:d});
 const sgn=(v,d=1)=>v==null?"–":(v>0?"+":"")+fmt(v,d)+"%";
 const pct=(v,d=1)=>v==null?'<span class="faint">–</span>':`<span class="${v>=0?"up":"down"}">${sgn(v,d)}</span>`;
+const pb=v=>v==null?'<span class="faint">–</span>':`<span class="mono">${v>0?"+":""}${fmt(v,0)} pb</span>`;
 const usd=v=>"$"+Math.round(v||0).toLocaleString("es-CL");
 const MES=["ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","dic"];
+const diasHasta=s=>{if(!s)return null;const h=new Date();h.setHours(12,0,0,0);return Math.round((new Date(s.slice(0,10)+"T12:00:00")-h)/864e5)};
 const fecha=s=>{if(!s)return"–";const[y,m,d]=s.slice(0,10).split("-");return`${+d} ${MES[+m-1]}`};
 const MOM={"Líder":["var(--up)","good"],"Recuperándose":["var(--info)","info"],"Perdiendo fuerza":["var(--warn)","warn"],"Rezagada":["var(--down)","bad"]};
+const MACRO={fed:"Fed · tasas",inflacion:"Inflación",empleo:"Empleo"};
 const ICON={good:"↑",bad:"↓",warn:"!",info:"i"};
 
 let D=null, byT={}, cart={items:[],nota:""}, sortKey="rank", sortDir=1;
@@ -341,7 +362,9 @@ function renderResumen(){
   const animo=lideres>rez*1.5?["good","Apetito por riesgo: la mayoría de la lista sube"]:rez>lideres*1.5?["bad","Aversión al riesgo: la mayoría de la lista viene cayendo"]:["warn","Mercado mixto: hay ganadores y perdedores claros"];
 
   el.innerHTML=`
-  <div class="market">${(D.mercado||[]).map(m=>`<div class="mk"><div class="row"><span class="label">${esc(m.nombre)}</span><span class="faint mono" style="font-size:11px">${esc(m.t)}</span></div>
+  <div class="market">${(D.mercado||[]).map(m=>m.tipo==="tasa"?`<div class="mk"><div class="row"><span class="label">${esc(m.nombre)}</span><span class="faint mono" style="font-size:11px">${esc(m.t)}</span></div>
+    <div class="row"><b>${fmt(m.precio,2)}%</b>${spark(m.hist,70,22)}</div>
+    <div class="chg"><span>Día ${pb(m.r1d)}</span><span>Sem ${pb(m.r1s)}</span><span>Mes ${pb(m.r1m)}</span></div></div>`:`<div class="mk"><div class="row"><span class="label">${esc(m.nombre)}</span><span class="faint mono" style="font-size:11px">${esc(m.t)}</span></div>
     <div class="row"><b>${fmt(m.precio,m.precio>1000?0:2)}</b>${spark(m.hist,70,22)}</div>
     <div class="chg"><span>Día ${pct(m.r1d)}</span><span>Sem ${pct(m.r1s)}</span><span>Mes ${pct(m.r1m)}</span></div></div>`).join("")}</div>
 
@@ -354,7 +377,7 @@ function renderResumen(){
     <div class="card"><header><h3>Mejor puntaje de torneo</h3><span class="label">Volatilidad + catalizador</span></header>
       ${lista(A.slice(0,5),a=>fmt(a.puntaje,2),a=>`${esc(a.tema)} · vol ${fmt(a.vol20,0)}%`)}</div>
     <div class="card"><header><h3>Reportan pronto</h3><span class="label">Próximos 10 días</span></header>
-      ${lista(proximos,a=>fecha(a.earn),a=>a.diasEarn===0?"hoy":`en ${a.diasEarn} días · vol ${fmt(a.vol20,0)}%`)}</div>
+      ${lista(proximos,a=>fecha(a.earn),a=>(a.diasEarn===0?"hoy":a.diasEarn===1?"mañana":`en ${a.diasEarn} días`)+` · vol ${fmt(a.vol20,0)}%`)}</div>
     <div class="card"><header><h3>Las que más suben</h3><span class="label">Última semana</span></header>
       ${lista(top(A,"r1s",5,true).filter(a=>a.r1s>0),a=>sgn(a.r1s),a=>`${esc(a.tema)} · mes ${sgn(a.r1m)}`)}</div>
     <div class="card"><header><h3>Las que más caen</h3><span class="label">Última semana</span></header>
@@ -369,6 +392,8 @@ function renderResumen(){
   <div class="card"><header><h2>Calendario de resultados</h2><span class="muted" style="font-size:13px">Las 5 semanas del desafío. Toca un ticker para ver su ficha.</span></header>
     <div class="calbox">${calendario()}</div></div>
 
+  ${macroResumen()}
+  ${contagioResumen()}
   <div class="two">
     <div class="card"><header><h2>Mapa de momentum</h2><span class="muted" style="font-size:13px">Tamaño = volatilidad</span></header>
       <p class="sub">Arriba a la derecha suben en el mes y en 3 meses. Arriba a la izquierda vienen rebotando después de caer.</p>
@@ -378,6 +403,54 @@ function renderResumen(){
       <p class="sub">Si un tema completo sube o cae junto, es un factor común: comprar varias del mismo tema no diversifica.</p></div>
   </div>`;
   drawScatter();
+}
+function macroResumen(){
+  const ev=(D.macro||[]).map(e=>({...e,dias:diasHasta(e.fecha)})).filter(e=>e.dias>=-1);
+  const A=D.acciones.filter(a=>a.sensTasa!=null&&a.corrTasa!=null&&Math.abs(a.corrTasa)>=0.2);
+  const neg=A.filter(a=>a.sensTasa<0).sort((p,q)=>p.sensTasa-q.sensTasa).slice(0,6);
+  const pos=A.filter(a=>a.sensTasa>0).sort((p,q)=>q.sensTasa-p.sensTasa).slice(0,4);
+  const tz=(D.mercado||[]).find(m=>m.tipo==="tasa");
+  if(!ev.length&&!A.length)return"";
+  const lst=(arr,txt)=>arr.length?`<div class="ilist">${arr.map(a=>`<button class="irow" data-open="${a.t}" type="button"><span class="tk">${a.t}</span><span class="why">${esc(a.tema)}</span><span class="v ${a.sensTasa<0?"down":"up"}">${a.sensTasa>0?"+":""}${fmt(a.sensTasa,1)}%</span></button>`).join("")}</div>`:`<div class="empty-note">${txt}</div>`;
+  return`<div class="card"><header><h2>Tasas de interés y eventos macro</h2>${tz?`<span class="muted" style="font-size:13px">Tasa 10 años: <b class="mono">${fmt(tz.precio,2)}%</b> · mes ${pb(tz.r1m)}</span>`:""}</header>
+    <p class="sub">Cuando suben las tasas de interés, las acciones de crecimiento y especulativas suelen caer, porque sus ganancias futuras valen menos hoy. Los datos de inflación y la decisión de la Fed mueven las tasas, y con ellas a casi toda tu lista.</p>
+    <div class="insights" style="grid-template-columns:repeat(auto-fit,minmax(260px,1fr))">
+      <div><h3 style="margin-bottom:6px">Próximos eventos</h3><div class="ilist">${ev.map(e=>`<div class="irow" style="cursor:default"><span class="mchip">${MACRO[e.tipo]||"Macro"}</span><span class="why" style="white-space:normal">${esc(e.evento)}</span><span class="v">${e.dias<=0?"hoy":e.dias===1?"mañana":fecha(e.fecha)}</span></div>`).join("")}</div></div>
+      <div><h3 style="margin-bottom:6px">Más golpeadas si suben las tasas</h3><span class="faint" style="font-size:12px">Movimiento típico por cada +0,10 pp en la tasa a 10 años</span>${lst(neg,"Ninguna muestra una relación clara.")}</div>
+      <div><h3 style="margin-bottom:6px">Se benefician si suben</h3><span class="faint" style="font-size:12px">Por cada +0,10 pp</span>${lst(pos,"Ninguna de la lista sube con las tasas de forma clara.")}</div>
+    </div>
+    <p class="sub" style="font-size:12px">Si un dato de inflación sale alto o la Fed sorprende con un tono duro, las tasas suben y las acciones de la izquierda suelen caer. Antes de esos días conviene revisar cuánto de la cartera depende de las tasas.</p></div>`;
+}
+function contagioResumen(){
+  const C=D.contagio||[];if(!C.length)return"";
+  const recientes=C.filter(l=>l.reciente);
+  const proximos=C.filter(l=>l.dias!=null&&l.dias>=0&&l.dias<=14).slice(0,8);
+  const fila=l=>`<div class="ctg">
+      <div class="ctg-l">${tkBtn(l.t)}<span class="ctg-d">${l.dias===0?"reporta hoy":l.dias===1?"mañana":`en ${l.dias} días · ${fecha(l.proximo)}`}</span><span class="faint" style="font-size:11px">se mueve ±${fmt(l.movL,1)}% al reportar</span></div>
+      <div class="ctg-arrow" aria-hidden="true">→</div>
+      <div class="ctg-f">${l.seguidores.map(s=>`<span class="ctg-s">${tkBtn(s.t)}<small>${s.mismo}% misma dirección · ±${fmt(s.mag,1)}%</small></span>`).join("")}</div></div>`;
+  const alerta=l=>{const r=l.reciente;return`<div class="ctg">
+      <div class="ctg-l">${tkBtn(l.t)}<span class="ctg-d">reportó ${fecha(r.fecha)}</span><span style="font-size:12px">reacción ${pct(r.reaccion)} vs mercado</span></div>
+      <div class="ctg-arrow" aria-hidden="true">→</div>
+      <div class="ctg-f">${r.seguidores.map(s=>{const falta=s.esperado-s.real,pend=Math.sign(s.esperado)===Math.sign(falta)&&Math.abs(falta)>=1.5;
+        return`<span class="ctg-s">${tkBtn(s.t)}<small>esperado ${sgn(s.esperado)} · real ${sgn(s.real)}${pend?' · <b class="'+(falta>0?"up":"down")+'">aún no se mueve</b>':""}</small></span>`}).join("")}</div></div>`};
+  return`<div class="card"><header><h2>Efecto contagio</h2><span class="muted" style="font-size:13px">Qué acciones se movieron junto a otra cuando esta reportó (últimos ~3 años)</span></header>
+    <p class="sub">Cuando una empresa reporta resultados, sus proveedores, clientes y competidores suelen moverse con ella. Esto se calculó con sus reportes pasados: "70% misma dirección" significa que en 7 de cada 10 reportes la otra acción se movió hacia el mismo lado.</p>
+    ${recientes.length?`<h3 style="margin-top:4px">Ya reportaron (últimos 5 días)</h3><div class="ctgs">${recientes.map(alerta).join("")}</div>`:""}
+    <h3 style="margin-top:4px">Reportan pronto y arrastran a otras</h3>
+    ${proximos.length?`<div class="ctgs">${proximos.map(fila).join("")}</div>`:'<span class="empty-note">Ninguna empresa con contagio claro reporta en las próximas 2 semanas.</span>'}
+    <p class="sub" style="font-size:12px">Son patrones históricos con 8 a 12 reportes por empresa: ayudan a anticipar, pero no garantizan que se repitan. Confírmalos con <code>SPLC</code> en Bloomberg.</p></div>`;
+}
+function contagioFicha(a){
+  const C=D.contagio||[];const yo=C.find(l=>l.t===a.t);
+  const meMueven=C.filter(l=>l.seguidores.some(s=>s.t===a.t)).map(l=>({l,s:l.seguidores.find(s=>s.t===a.t)}));
+  if(!yo&&!meMueven.length)return"";
+  return`<div class="card"><header><h3>Efecto contagio</h3><span class="faint" style="font-size:12px">Según reportes pasados</span></header>
+    ${yo?`<div><span class="label">Cuando ${esc(a.t)} reporta${yo.proximo?" ("+fecha(yo.proximo)+")":""}, se mueven con ella</span>
+      <div class="news">${yo.seguidores.map(s=>`<div class="ctg-row">${tkBtn(s.t)}<span>${s.mismo}% misma dirección en ${s.n} reportes · se mueve ±${fmt(s.mag,1)}%${Math.abs(s.sigue)>=1?` · los 3 días siguientes ${s.sigue>0?"sigue":"se devuelve"} ${fmt(Math.abs(s.sigue),1)}%`:""}</span></div>`).join("")}</div></div>`:""}
+    ${meMueven.length?`<div><span class="label">La mueven los reportes de</span>
+      <div class="news">${meMueven.map(({l,s})=>`<div class="ctg-row">${tkBtn(l.t)}<span>${esc(l.nombre)}${l.proximo?` · reporta ${fecha(l.proximo)}`:""} · ${s.mismo}% misma dirección</span></div>`).join("")}</div></div>`:""}
+  </div>`;
 }
 function kronosResumen(){
   const A=D.acciones.filter(a=>a.kronos);
@@ -420,8 +493,9 @@ function calendario(){
   for(let w=0;w<5;w++){h+=`<div class="wk">Semana ${w+1}</div>`;
     for(let d=0;d<5;d++){const dt=new Date(lunes);dt.setDate(lunes.getDate()+w*7+d);const s=dt.toISOString().slice(0,10);
       const items=(map[s]||[]).sort((p,q)=>q.puntaje-p.puntaje);
+      const mac=(D.macro||[]).filter(e=>e.fecha===s);
       const cls=[s===hoyS?"today":"",s<hoyS?"past":"",s==="2026-11-13"?"end":""].join(" ");
-      h+=`<div class="day ${cls}"><span class="dn">${dt.getDate()} ${MES[dt.getMonth()]}${s==="2026-11-13"?" · cierre":""}</span><div class="chips">${items.map(a=>tkBtn(a.t)).join("")}</div></div>`}}
+      h+=`<div class="day ${cls}"><span class="dn">${dt.getDate()} ${MES[dt.getMonth()]}${s==="2026-11-13"?" · cierre":""}</span><div class="chips">${mac.map(e=>`<span class="mchip" title="${esc(e.evento)}">${MACRO[e.tipo]||"Macro"}</span>`).join("")}${items.map(a=>tkBtn(a.t)).join("")}</div></div>`}}
   return`<div class="cal">${h}</div>`;
 }
 function temasBars(){
@@ -460,7 +534,7 @@ function drawScatter(){
 }
 
 /* ---------- ACCIONES ---------- */
-const COLS=[["rank","#",1],["t","Acción",0],["tema","Tema",0],["precio","Precio",1],["r1d","Día",1],["r1s","Semana",1],["r1m","Mes",1],["r3m","3 meses",1],["momentum","Momentum",0],["vol20","Vol 20d",1],["kmov","Kronos ±",1],["rsi","RSI",1],["earn","Resultados",0],["upside","Analistas",1],["short","Short %",1],["puntaje","Puntaje",1]];
+const COLS=[["rank","#",1],["t","Acción",0],["tema","Tema",0],["precio","Precio",1],["r1d","Día",1],["r1s","Semana",1],["r1m","Mes",1],["r3m","3 meses",1],["momentum","Momentum",0],["vol20","Vol 20d",1],["kmov","Kronos ±",1],["sensTasa","Tasas",1],["rsi","RSI",1],["earn","Resultados",0],["upside","Analistas",1],["short","Short %",1],["puntaje","Puntaje",1]];
 function filas(){
   const a=D.acciones.filter(x=>(!filtro.tema||x.tema===filtro.tema)&&(!filtro.mom||x.momentum===filtro.mom)&&(!filtro.ventana||x.enVentana)&&(!filtro.liquida||(x.liq??0)>=D.liqMin)&&(!filtro.q||(x.t+" "+x.nombre+" "+(x.industria||"")).toLowerCase().includes(filtro.q)));
   return a.sort((p,q)=>{const A=p[sortKey],B=q[sortKey];if(A==null)return 1;if(B==null)return-1;return(A>B?1:A<B?-1:0)*sortDir});
@@ -489,6 +563,7 @@ function renderAcciones(){
       <td>${momChip(a.momentum)}</td>
       <td class="n">${fmt(a.vol20,0)}%</td>
       <td class="n">${a.kmov==null?'<span class="faint">–</span>':"±"+fmt(a.kmov,0)+"%"}</td>
+      <td class="n" title="Movimiento típico si la tasa a 10 años sube 0,10 pp">${a.sensTasa==null?'<span class="faint">–</span>':pct(a.sensTasa)}</td>
       <td class="n ${a.rsi>=70?"down":a.rsi<=30?"up":""}">${fmt(a.rsi,0)}</td>
       <td>${a.earn?`<span class="chip ${a.enVentana?"good":""}">${fecha(a.earn)}</span>`:'<span class="faint">–</span>'}</td>
       <td class="n">${a.upside==null?'<span class="faint">–</span>':pct(a.upside,0)}</td>
@@ -497,7 +572,7 @@ function renderAcciones(){
       <td>${sigDots(a)}</td>
       <td>${spark(a.hist)}</td>
       <td><button class="add ${enC.has(a.t)?"on":""}" data-add="${a.t}" type="button" aria-label="${enC.has(a.t)?"Quitar de":"Agregar a"} la cartera">${enC.has(a.t)?"✓":"+"}</button></td>
-    </tr>`).join("")||`<tr><td colspan="19" class="muted" style="padding:20px">Ninguna acción cumple los filtros.</td></tr>`}</tbody>
+    </tr>`).join("")||`<tr><td colspan="20" class="muted" style="padding:20px">Ninguna acción cumple los filtros.</td></tr>`}</tbody>
   </table></div>`;
   const keep=id=>{const e=$(id);e.focus();const v=e.value;e.setSelectionRange?.(v.length,v.length)};
   $("#fq").oninput=e=>{filtro.q=e.target.value.toLowerCase();renderAcciones();keep("#fq")};
@@ -554,6 +629,7 @@ function openFicha(t){
         <div><span class="label">Escenarios que suben</span><b>${a.kronos.pSube}%</b><span class="faint" style="font-size:12px">solo referencia</span></div>
       </div>
       <p class="sub" style="margin:0">Kronos es un modelo de IA entrenado con velas de 45 bolsas. Es bueno para estimar cuánto se puede mover una acción; su dirección (sube o baja) es poco confiable a varios días.</p></div>`:""}
+    ${contagioFicha(a)}
     <div class="card"><header><h3>Analistas y resultados</h3></header>
       <div class="kpis" style="grid-template-columns:repeat(2,minmax(0,1fr))">
         <div><span class="label">Recomendación</span><b style="font-family:var(--body)">${esc(a.reco||"–")}</b><span class="faint" style="font-size:12px">${a.nAnalistas?a.nAnalistas+" analistas":""}</span></div>
@@ -565,6 +641,7 @@ function openFicha(t){
       ${a.noticias.length?`<div class="news">${a.noticias.map(n=>`<a href="${esc(n.url)}" target="_blank" rel="noopener"><span class="nt">${esc(n.titulo)}</span><span class="nmeta">${esc(n.fuente||"")}${n.fecha?" · "+fecha(n.fecha):""}</span></a>`).join("")}</div>`:'<span class="empty-note">Yahoo no tiene noticias recientes para esta empresa.</span>'}</div>
     <div class="card"><header><h3>De qué depende</h3><span class="faint" style="font-size:12px">Beta 90 días</span></header>
       ${betas.map(([k,v])=>`<div class="betarow"><span>${esc(D.drivers[k]||k)}${k===a.driver?" ●":""}</span><span class="betatrack"><span style="width:${Math.min(100,100*Math.abs(v||0)/mb)}%"></span></span><span class="num" style="text-align:right">${fmt(v,2)}</span></div>`).join("")}
+      ${a.sensTasa!=null?`<div class="betarow"><span>Tasa 10 años (+0,10 pp)</span><span class="betatrack"><span style="width:${Math.min(100,25*Math.abs(a.sensTasa))}%;background:var(--${a.sensTasa<0?"down":"up"})"></span></span><span class="num" style="text-align:right">${a.sensTasa>0?"+":""}${fmt(a.sensTasa,1)}%</span></div>`:""}
       <span class="label" style="margin-top:4px">Se mueve junto con</span>
       <div class="peers">${peers(a.t).map(([u,c])=>tkBtn(u,` <span style="opacity:.7">${fmt(c,2)}</span>`)).join("")}</div>
     </div>
@@ -611,11 +688,11 @@ function drawHM(){
 }
 
 /* ---------- CARTERA ---------- */
-function toggleCart(t){const i=cart.items.findIndex(x=>x.t===t);if(i>=0)cart.items.splice(i,1);else cart.items.push({t,usd:MAXPOS,wls:false});store("gtc-cart",cart);renderAll(false);toast(i>=0?`${t} quitada de la cartera`:`${t} agregada con ${usd(MAXPOS)}`);if($(".drawer"))openFicha(t)}
+function toggleCart(t){const i=cart.items.findIndex(x=>x.t===t);if(i>=0)cart.items.splice(i,1);else cart.items.push({t,usd:MAXPOS,wls:byT[t]?.bbg?.wls===true});store("gtc-cart",cart);renderAll(false);toast(i>=0?`${t} quitada de la cartera`:`${t} agregada con ${usd(MAXPOS)}`);if($(".drawer"))openFicha(t)}
 function cartStats(){
   const it=cart.items.filter(i=>byT[i.t]),tot=it.reduce((s,i)=>s+(+i.usd||0),0),w=it.map(i=>(+i.usd||0)/CAPITAL),C=D.corr,idx=it.map(i=>C.tickers.indexOf(i.t));
   let vp=0,cs=0,cn=0;
-  for(let a=0;a<it.length;a++)for(let b=0;b<it.length;b++){const sa=(byT[it[a].t].vol20||0)/100,sb=(byT[it[b].t].vol20||0)/100,r=a===b?1:(idx[a]>=0&&idx[b]>=0?(C.m[idx[a]][idx[b]]??0):0);vp+=w[a]*w[b]*sa*sb*r;if(a<b){cs+=r;cn++}}
+  for(let a=0;a<it.length;a++)for(let b=0;b<it.length;b++){const vv=t=>(byT[t].bbg?.iv||byT[t].bbg?.hv||byT[t].vol20||0)/100,sa=vv(it[a].t),sb=vv(it[b].t),r=a===b?1:(idx[a]>=0&&idx[b]>=0?(C.m[idx[a]][idx[b]]??0):0.35);vp+=w[a]*w[b]*sa*sb*r;if(a<b){cs+=r;cn++}}
   const vol=Math.sqrt(Math.max(vp,0));
   return{it,tot,caja:CAPITAL-tot,vol,v5:vol*Math.sqrt(25/252),corr:cn?cs/cn:null,grupos:new Set(it.map(i=>byT[i.t].grupo)).size,enV:it.filter(i=>byT[i.t].enVentana).length};
 }
@@ -627,7 +704,7 @@ function renderCartera(){
     [s.caja>50000?"w":"",s.caja>50000?`Quedan ${usd(s.caja)} en caja. Si el índice sube, la caja te resta en el ranking relativo.`:`Caja ociosa baja: ${usd(Math.max(0,s.caja))}.`],
     [sinW.length?"w":"",sinW.length?`Falta confirmar en Bloomberg que ${sinW.map(i=>i.t).join(", ")} esté en el WLS.`:"Todas confirmadas en el índice WLS."]];
   const tipo=s.corr==null?"–":s.corr>=.5?"Apuesta concentrada":s.corr>=.25?"Temas relacionados":"Diversificada";
-  el.innerHTML=s.it.length?`<div class="stats">
+  el.innerHTML=bbgHTML()+(s.it.length?`<div class="stats">
     <div class="stat ${s.tot>CAPITAL?"badS":""}"><span class="label">Invertido</span><b>${usd(s.tot)}</b><span class="muted">${fmt(100*s.tot/CAPITAL,0)}% del capital</span></div>
     <div class="stat ${s.caja>50000?"warnS":""}"><span class="label">Caja</span><b>${usd(s.caja)}</b></div>
     <div class="stat"><span class="label">Volatilidad estimada</span><b>${fmt(100*s.vol,0)}%</b><span class="muted">Rango típico en 5 semanas ±${fmt(100*s.v5,0)}%</span></div>
@@ -642,10 +719,173 @@ function renderCartera(){
     <div class="card"><h3>Reglas del desafío</h3><div class="rules">${reglas.map(([c,t])=>`<div class="rule"><span class="dot ${c}"></span><span>${esc(t)}</span></div>`).join("")}</div>
       <label class="label" for="nota">Notas</label><textarea id="nota" placeholder="Tesis, catalizadores, cuándo vender…">${esc(cart.nota)}</textarea>
       <span class="faint" style="font-size:12px">Se guarda en este navegador.</span></div></div>`
-  :`<div class="empty"><h2>La cartera está vacía</h2><p class="muted">En Acciones o en la ficha de una empresa, presiona + para agregarla con ${usd(MAXPOS)}. Aquí verás si cumples las reglas, cuánta caja queda y cuán concentrada es la apuesta.</p><button class="btn primary" type="button" data-goto="acciones">Ir a Acciones</button></div>`;
+  :`<div class="empty"><h2>La cartera está vacía</h2><p class="muted">En Acciones o en la ficha de una empresa, presiona + para agregarla con ${usd(MAXPOS)}. Aquí verás si cumples las reglas, cuánta caja queda y cuán concentrada es la apuesta.</p><button class="btn primary" type="button" data-goto="acciones">Ir a Acciones</button></div>`)+mcHTML(s.it.length);
+  mcBind(s.it.length);bbgBind();
   el.querySelectorAll("[data-usd]").forEach(inp=>inp.onchange=()=>{cart.items.find(x=>x.t===inp.dataset.usd).usd=Math.max(0,Math.round(+String(inp.value).replace(/[^\d]/g,"")||0));store("gtc-cart",cart);renderCartera()});
   el.querySelectorAll("[data-wls]").forEach(c=>c.onchange=()=>{cart.items.find(x=>x.t===c.dataset.wls).wls=c.checked;store("gtc-cart",cart);renderCartera()});
   const n=$("#nota");if(n)n.oninput=()=>{cart.nota=n.value;store("gtc-cart",cart)};
+}
+
+/* ---------- BLOOMBERG (privado, solo en este navegador) ---------- */
+let BBG=load("gtc-bbg");
+function cargarLib(){return window.XLSX?Promise.resolve():new Promise((ok,no)=>{const sc=document.createElement("script");sc.src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";sc.onload=ok;sc.onerror=()=>no(new Error("lib"));document.head.appendChild(sc)})}
+function aISO(v){if(v==null||v==="")return null;if(v instanceof Date&&!isNaN(v))return new Date(v.getTime()-v.getTimezoneOffset()*6e4).toISOString().slice(0,10);
+  if(typeof v==="number"&&v>20000&&v<80000){const d=new Date(Math.round((v-25569)*864e5));return d.toISOString().slice(0,10)}
+  const s=String(v).trim();let m=s.match(/^(\d{4})-(\d{2})-(\d{2})/);if(m)return m[0];m=s.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})$/);if(m)return`${m[3]}-${m[2].padStart(2,"0")}-${m[1].padStart(2,"0")}`;return null}
+function aNum(v){if(v==null||v==="")return null;if(typeof v==="number")return isFinite(v)?v:null;const s=String(v).trim();if(/^#|N\/A|Invalid|Requesting/i.test(s))return null;const x=parseFloat(s.replace(/\s/g,"").replace(/\.(?=\d{3}(\D|$))/g,"").replace(",","."));return isFinite(x)?x:null}
+async function cargarBBG(file){
+  try{await cargarLib()}catch(e){toast("No se pudo cargar el lector de Excel. Revisa tu conexión.");return}
+  let wb;try{wb=XLSX.read(await file.arrayBuffer(),{cellDates:true})}catch(e){toast("No se pudo leer el archivo.");return}
+  const sh=wb.Sheets["Datos"]||wb.Sheets[wb.SheetNames[wb.SheetNames.length-1]];
+  const rows=XLSX.utils.sheet_to_json(sh,{header:1,raw:true,defval:null});
+  if(!rows.length){toast("El archivo está vacío.");return}
+  const H=rows[0].map(h=>String(h||"").toUpperCase());
+  const col=(...k)=>H.findIndex(h=>k.some(x=>h.includes(x)));
+  const c={t:col("TICKER"),sec:col("SECURITY"),px:col("PX_LAST"),chg:col("CHG_PCT"),mcap:col("MKT_CAP"),hv:col("VOLATILITY_30D","VOLATILITY"),iv:col("IMPVOL","IMP_VOL","IVOL"),beta:col("BETA"),earn:col("REPORT_DT","EXPECTED_REPORT","EARN"),si:col("SI_PERCENT","SHORT"),tg:col("TARGET"),ind:col("INDUSTRY"),wls:col("WLS")};
+  const filas={};let n=0;
+  rows.slice(1).forEach(r=>{let t=c.t>=0?r[c.t]:null;if(!t&&c.sec>=0&&r[c.sec])t=String(r[c.sec]).split(" ")[0];if(!t)return;t=String(t).trim().toUpperCase();if(t==="TICKER CORTO")return;
+    const g=k=>c[k]>=0?r[c[k]]:null;
+    const f={px:aNum(g("px")),chg:aNum(g("chg")),mcap:aNum(g("mcap")),hv:aNum(g("hv")),iv:aNum(g("iv")),beta:aNum(g("beta")),earn:aISO(g("earn")),si:aNum(g("si")),target:aNum(g("tg")),ind:g("ind")&&!/^#/.test(String(g("ind")))?String(g("ind")):null,
+      wls:String(g("wls")||"").trim().toUpperCase().startsWith("S")?true:String(g("wls")||"").trim().toUpperCase().startsWith("N")?false:null,sec:c.sec>=0?r[c.sec]:null};
+    if([f.px,f.hv,f.iv,f.beta,f.earn].every(x=>x==null)&&f.wls==null)return;filas[t]=f;n++});
+  if(!n){toast("No encontré datos. ¿Se calcularon las fórmulas antes de guardar?");return}
+  BBG={fecha:new Date().toISOString(),archivo:file.name,filas};store("gtc-bbg",BBG);aplicarBBG();renderAll(false);toast(`Bloomberg: ${n} acciones cargadas`);
+}
+function aplicarBBG(){
+  if(!BBG||!D)return;
+  Object.entries(BBG.filas).forEach(([t,f])=>{
+    if(!byT[t]){byT[t]={t,nombre:t,tema:"Bloomberg",industria:f.ind,rank:"–",vol20:f.hv||f.iv,earn:f.earn,enVentana:!!f.earn&&f.earn>=D.ventana.ini&&f.earn<=D.ventana.fin,
+      betas:{ACWI:f.beta??1},grupo:"–",senales:[],noticias:[],hist:[],precio:f.px,bbgOnly:true}}
+    const a=byT[t];a.bbg=f;
+    if(f.wls!=null){const it=cart.items.find(i=>i.t===t);if(it)it.wls=f.wls}
+  });
+}
+function bbgHTML(){
+  const ok=BBG&&Object.keys(BBG.filas).length;
+  let tabla="";
+  if(ok){const fs=Object.entries(BBG.filas);const enC=new Set(cart.items.map(i=>i.t));
+    tabla=`<details style="margin-top:4px"><summary style="cursor:pointer;font-weight:600">Ver ${fs.length} acciones cargadas</summary><div class="tablebox" style="margin-top:8px;max-height:420px;overflow:auto"><table><thead><tr><th>Acción</th><th class="n">Vol. implícita</th><th class="n">Vol. histórica</th><th class="n">Vol. Yahoo</th><th class="n">Beta</th><th>Reporte (Bloomberg)</th><th>En WLS</th><th></th></tr></thead><tbody>
+    ${fs.map(([t,f])=>{const a=byT[t]||{},yE=a.bbgOnly?null:(D.acciones.find(x=>x.t===t)||{}).earn,dif=yE&&f.earn&&yE!==f.earn;
+      return`<tr><td>${tkBtn(t)}${a.bbgOnly?' <span class="chip info">solo Bloomberg</span>':""}</td><td class="n">${f.iv!=null?fmt(f.iv,0)+"%":"–"}</td><td class="n">${f.hv!=null?fmt(f.hv,0)+"%":"–"}</td><td class="n">${a.bbgOnly?"–":fmt((D.acciones.find(x=>x.t===t)||{}).vol20,0)+"%"}</td><td class="n">${fmt(f.beta,2)}</td>
+      <td>${f.earn?`<span class="chip ${f.earn>=D.ventana.ini&&f.earn<=D.ventana.fin?"good":""}">${fecha(f.earn)}</span>`:"–"}${dif?` <span class="chip warn" title="Yahoo decía ${fecha(yE)}">Yahoo: ${fecha(yE)}</span>`:""}</td>
+      <td>${f.wls===true?'<span class="chip good">Sí</span>':f.wls===false?'<span class="chip bad">No</span>':"–"}</td>
+      <td>${f.wls===false?"":`<button class="add ${enC.has(t)?"on":""}" data-add="${t}" type="button" aria-label="Cartera">${enC.has(t)?"✓":"+"}</button>`}</td></tr>`}).join("")}</tbody></table></div></details>`}
+  return`<div class="card"><header><h2>Datos de Bloomberg</h2><span class="muted" style="font-size:13px">${ok?`${Object.keys(BBG.filas).length} acciones · ${esc(BBG.archivo||"")} · ${new Date(BBG.fecha).toLocaleString("es-CL",{day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"})}`:"Sin cargar"}</span></header>
+    <p class="sub">Descarga la plantilla, ábrela en un computador con Bloomberg para que se llenen las fórmulas, guárdala y súbela aquí. Monte Carlo usará la volatilidad implícita, la beta y la fecha oficial de resultados de Bloomberg, y podrás simular acciones que no están en la lista. <b>El archivo se lee solo en este navegador: no se sube a internet.</b></p>
+    <div class="filters"><a class="btn" href="Bloomberg_GTC.xlsx" download>Descargar plantilla</a>
+      <input type="file" id="bbgFile" accept=".xlsx,.xls,.csv" class="sr"><button class="btn primary" id="bbgLoad" type="button">${ok?"Actualizar Excel de Bloomberg":"Cargar Excel de Bloomberg"}</button>
+      ${ok?'<button class="btn small" id="bbgClear" type="button">Quitar datos</button>':""}</div>${tabla}</div>`;
+}
+function bbgBind(){
+  const b=$("#bbgLoad"),f=$("#bbgFile"),c=$("#bbgClear");
+  if(b)b.onclick=()=>f.click();
+  if(f)f.onchange=e=>{const x=e.target.files[0];if(x)cargarBBG(x);e.target.value=""};
+  if(c)c.onclick=()=>{BBG=null;try{localStorage.removeItem("gtc-bbg")}catch(e){};Object.keys(byT).forEach(k=>{if(byT[k].bbgOnly)delete byT[k];else delete byT[k].bbg});renderAll(false);toast("Datos de Bloomberg quitados")};
+}
+
+/* ---------- MONTE CARLO ---------- */
+let mcMeta=50;
+function randn(){let u=0,v=0;while(!u)u=Math.random();while(!v)v=Math.random();return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v)}
+function chol(M){const n=M.length,L=M.map(()=>new Array(n).fill(0));
+  for(let i=0;i<n;i++)for(let j=0;j<=i;j++){let s=M[i][j];for(let k=0;k<j;k++)s-=L[i][k]*L[j][k];
+    if(i===j){if(s<=1e-10)return null;L[i][i]=Math.sqrt(s)}else L[i][j]=s/L[j][j]}return L}
+function diasRestantes(){const h=new Date();h.setHours(0,0,0,0);const desde=h<INI?INI:h;return Math.max(1,habiles(desde,FIN)-(h>=INI?1:0))}
+function habilIdx(s){if(!s)return -1;const d=new Date(s.slice(0,10)+"T12:00:00");const h=new Date();h.setHours(0,0,0,0);const desde=h<INI?INI:h;if(d<desde||d>FIN)return -1;return habiles(desde,d)-1}
+function ctxMC(ts){
+  const C=D.corr,idx=ts.map(t=>C.tickers.indexOf(t));
+  const acwi=(D.mercado||[]).find(m=>m.t==="ACWI");let sm=0.009;
+  if(acwi&&acwi.hist){const r=[];for(let i=1;i<acwi.hist.length;i++)if(acwi.hist[i]&&acwi.hist[i-1])r.push(acwi.hist[i]/acwi.hist[i-1]-1);const mu=r.reduce((a,b)=>a+b,0)/r.length;sm=Math.sqrt(r.reduce((a,b)=>a+(b-mu)**2,0)/(r.length-1))||sm}
+  const B=t=>(BBG&&BBG.filas[t])||{};
+  const sig=ts.map(t=>Math.max(0.005,(B(t).iv||B(t).hv||byT[t].vol20||40)/100/Math.sqrt(252)));
+  const movL={};(D.contagio||[]).forEach(l=>movL[l.t]=l.movL);
+  // la volatilidad implicita ya incluye el reporte esperado: no se suma un salto extra
+  const salto=ts.map((t,i)=>B(t).iv?0:movL[t]?Math.max(1.25*movL[t]/100,2*sig[i]):3*sig[i]);
+  const dia=ts.map(t=>habilIdx(B(t).earn||byT[t].earn));
+  const n=ts.length,M=[];
+  for(let i=0;i<=n;i++){M.push([]);for(let j=0;j<=n;j++){let v;
+    if(i===j)v=1;else if(i===n||j===n){const k=i===n?j:i;const b=B(ts[k]).beta??(byT[ts[k]].betas||{}).ACWI??1;v=Math.max(-.9,Math.min(.9,b*sm/sig[k]))}
+    else v=(idx[i]>=0&&idx[j]>=0?(C.m[idx[i]][idx[j]]??0):0.35);M[i].push(v)}}
+  let L=null;for(let sh=1;sh>0.3&&!L;sh-=0.05)L=chol(M.map((r,i)=>r.map((v,j)=>i===j?1:v*sh)));
+  return{sig,sm,salto,dia,L,n};
+}
+function simular(ts,pesos,N,dias,ctx){
+  ctx=ctx||ctxMC(ts);const{sig,sm,salto,dia,L,n}=ctx;if(!L)return null;
+  const rel=new Float64Array(N),z=new Array(n+1),e=new Array(n+1);
+  for(let p=0;p<N;p++){const lv=new Array(n).fill(0);let lm=0;
+    for(let d=0;d<dias;d++){for(let i=0;i<=n;i++)z[i]=randn();
+      for(let i=0;i<=n;i++){let s2=0;for(let k=0;k<=i;k++)s2+=L[i][k]*z[k];e[i]=s2}
+      for(let i=0;i<n;i++){lv[i]+=sig[i]*e[i]-0.5*sig[i]*sig[i];if(dia[i]===d)lv[i]+=salto[i]*randn()-0.5*salto[i]*salto[i]}
+      lm+=sm*e[n]-0.5*sm*sm}
+    let port=0;for(let i=0;i<n;i++)port+=pesos[i]*(Math.exp(lv[i])-1);
+    rel[p]=100*(port-(Math.exp(lm)-1))}
+  return rel;
+}
+function resumenMC(rel,meta){const a=Array.from(rel).sort((x,y)=>x-y),q=f=>a[Math.min(a.length-1,Math.floor(f*a.length))];
+  return{p5:q(.05),p25:q(.25),p50:q(.5),p75:q(.75),p95:q(.95),pMeta:a.filter(x=>x>=meta).length/a.length,pPos:a.filter(x=>x>0).length/a.length,pMal:a.filter(x=>x<=-30).length/a.length,a}}
+function histoSVG(R,meta){
+  const a=R.a,lo=Math.max(-80,a[Math.floor(a.length*.005)]),hi=Math.min(400,a[Math.floor(a.length*.995)]),B=40,w=(hi-lo)/B||1,c=new Array(B).fill(0);
+  a.forEach(v=>{const k=Math.min(B-1,Math.max(0,Math.floor((v-lo)/w)));c[k]++});
+  const W=1000,H=230,P=26,mx=Math.max(...c),X=v=>P+(v-lo)/(hi-lo)*(W-2*P);
+  let s=`<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block" role="img" aria-label="Distribución de resultados">`;
+  c.forEach((v,k)=>{const x0=lo+k*w,h=(H-P-10)*v/mx;s+=`<rect x="${X(x0)+1}" y="${H-P-h}" width="${Math.max(1,X(x0+w)-X(x0)-2)}" height="${h}" rx="2" fill="${x0+w/2>=meta?"var(--up)":x0+w/2>=0?"var(--accent)":"var(--down)"}" fill-opacity=".8"/>`});
+  [0,meta].forEach((v,i)=>{if(v>=lo&&v<=hi)s+=`<line x1="${X(v)}" x2="${X(v)}" y1="8" y2="${H-P}" stroke="var(--fg)" stroke-dasharray="${i?"4 3":"0"}" stroke-width="1.2"/><text x="${X(v)+4}" y="16" style="fill:var(--fg);font-size:11px;font-family:var(--mono)">${i?"meta "+sgn(meta,0):"0%"}</text>`});
+  const tk=[];const st=(hi-lo)>200?100:(hi-lo)>80?25:10;for(let v=Math.ceil(lo/st)*st;v<=hi;v+=st)tk.push(v);
+  tk.forEach(v=>s+=`<text x="${X(v)}" y="${H-8}" text-anchor="middle" style="fill:var(--muted);font-size:10px;font-family:var(--mono)">${v}%</text>`);
+  return s+`</svg>`;
+}
+function mcHTML(hay){
+  return`<div class="card" id="mcCard"><header><h2>Simulación Monte Carlo</h2><span class="muted" style="font-size:13px">${diasRestantes()} días hábiles restantes · 4.000 escenarios</span></header>
+    <p class="sub">Simula miles de caminos posibles hasta el 13 de noviembre usando la volatilidad real de cada acción, cómo se mueven juntas, su relación con el mercado y un salto en el día de su reporte. No predice qué va a pasar: mide qué tan probable es llegar a tu meta con esta cartera, comparada con el índice.</p>
+    <div class="filters"><label class="chk" for="mcMeta">Meta sobre el índice</label><input type="number" id="mcMeta" value="${mcMeta}" step="10" style="width:90px;border:1px solid var(--line);border-radius:8px;padding:7px 10px;background:var(--surface)"> <span class="muted">%</span>
+      ${hay?'<button class="btn primary" id="mcRun" type="button">Simular mi cartera</button>':""}
+      <button class="btn" id="mcBest" type="button">Buscar la combinación con más probabilidad</button></div>
+    <div id="mcOut">${hay?"":'<span class="empty-note">Agrega acciones a la cartera para simularla, o usa el buscador.</span>'}</div>
+    <div id="mcBestOut"></div></div>`;
+}
+function mcBind(hay){
+  const m=$("#mcMeta");if(m)m.onchange=()=>{mcMeta=+m.value||100;if(hay)correrMC()};
+  const b=$("#mcRun");if(b)b.onclick=correrMC;
+  const o=$("#mcBest");if(o)o.onclick=buscarMejor;
+  if(hay)setTimeout(correrMC,30);
+}
+function correrMC(){
+  const it=cart.items.filter(i=>byT[i.t]&&(+i.usd||0)>0);if(!it.length)return;
+  const ts=it.map(i=>i.t),pesos=it.map(i=>(+i.usd)/CAPITAL),dias=diasRestantes();
+  const rel=simular(ts,pesos,4000,dias);const out=$("#mcOut");if(!out)return;
+  if(!rel){out.innerHTML='<span class="empty-note">No se pudo simular con estas acciones.</span>';return}
+  const R=resumenMC(rel,mcMeta);
+  out.innerHTML=`<div class="stats">
+    <div class="stat ${R.pMeta>=.1?"":"warnS"}"><span class="label">Probabilidad de llegar a ${sgn(mcMeta,0)}</span><b>${fmt(100*R.pMeta,1)}%</b><span class="muted">sobre el índice al cierre</span></div>
+    <div class="stat"><span class="label">Le gana al índice</span><b>${fmt(100*R.pPos,0)}%</b><span class="muted">de los escenarios</span></div>
+    <div class="stat"><span class="label">Escenario central</span><b>${sgn(R.p50,0)}</b><span class="muted">la mitad sale mejor, la mitad peor</span></div>
+    <div class="stat"><span class="label">Rango probable (90%)</span><b>${sgn(R.p5,0)} a ${sgn(R.p95,0)}</b></div>
+    <div class="stat ${R.pMal>=.2?"badS":""}"><span class="label">Riesgo de −30% o peor</span><b>${fmt(100*R.pMal,0)}%</b></div></div>
+    ${histoSVG(R,mcMeta)}
+    <p class="sub" style="font-size:12px">${(()=>{const nb=ts.filter(t=>BBG&&BBG.filas[t]&&(BBG.filas[t].iv||BBG.filas[t].hv)).length;return nb?`Usando datos de <b>Bloomberg</b> para ${nb} de ${ts.length} acciones (volatilidad${ts.some(t=>BBG.filas[t]?.iv)?" implícita":""}, beta y fecha de reporte). El resto, con datos de Yahoo.`:"Usando datos de Yahoo. Carga tu Excel de Bloomberg arriba para simular con volatilidad implícita y fechas oficiales."})()}</p>
+    ${R.pMeta<0.01?`<p class="sub" style="color:var(--warn)"><b>Con una cartera fija es muy improbable llegar a ${sgn(mcMeta,0)} en lo que queda.</b> Los equipos que logran metas así lo hacen rotando: venden después de cada catalizador y entran a la siguiente acción que reporta, encadenando varias apuestas.</p>`:""}
+    <p class="sub" style="font-size:12px">Verde: escenarios que alcanzan la meta. Azul: le ganan al índice sin llegar a la meta. Rojo: pierden contra el índice. Supone que mantienes la cartera sin cambios hasta el cierre; rotar posiciones cambia el resultado.</p>`;
+}
+function buscarMejor(){
+  const out=$("#mcBestOut");if(!out)return;
+  const cand=D.acciones.filter(a=>(a.liq??0)>=D.liqMin).slice(0,30).map(a=>a.t);
+  if(cand.length<5){out.innerHTML='<span class="empty-note">No hay suficientes acciones líquidas.</span>';return}
+  out.innerHTML='<p class="muted">Probando 250 combinaciones de 5 acciones entre las 30 con mejor puntaje… (unos segundos)</p>';
+  const dias=diasRestantes(),res=[],vistos=new Set();let k=0;
+  const paso=()=>{const fin=performance.now()+120;
+    while(k<250&&performance.now()<fin){k++;const c=[];const pool=cand.slice();
+      while(c.length<5){c.push(pool.splice(Math.floor(Math.random()*pool.length),1)[0])}c.sort();const key=c.join();if(vistos.has(key))continue;vistos.add(key);
+      const rel=simular(c,[.2,.2,.2,.2,.2],700,dias);if(rel)res.push({c,R:resumenMC(rel,mcMeta)})}
+    if(k<250){out.innerHTML=`<p class="muted">Probando combinaciones… ${k}/250</p>`;setTimeout(paso,0);return}
+    res.sort((a,b)=>b.R.pMeta-a.R.pMeta||b.R.p95-a.R.p95);
+    const top=res.slice(0,5).map(r=>{const rel=simular(r.c,[.2,.2,.2,.2,.2],4000,dias);return{c:r.c,R:resumenMC(rel,mcMeta)}}).sort((a,b)=>b.R.pMeta-a.R.pMeta);
+    out.innerHTML=`<h3 style="margin-top:6px">Combinaciones con más probabilidad de llegar a ${sgn(mcMeta,0)}</h3>
+      <div class="tablebox"><table><thead><tr><th>Acciones (200.000 USD cada una)</th><th class="n">Prob. meta</th><th class="n">Le gana al índice</th><th class="n">Rango 90%</th><th class="n">Riesgo −30%</th><th></th></tr></thead><tbody>
+      ${top.map((t,i)=>`<tr><td>${t.c.map(x=>tkBtn(x)).join(" ")}</td><td class="n"><b>${fmt(100*t.R.pMeta,1)}%</b></td><td class="n">${fmt(100*t.R.pPos,0)}%</td><td class="n">${sgn(t.R.p5,0)} a ${sgn(t.R.p95,0)}</td><td class="n">${fmt(100*t.R.pMal,0)}%</td><td><button class="btn small" data-usar="${t.c.join(",")}" type="button">Usar esta</button></td></tr>`).join("")}
+      </tbody></table></div>
+      <p class="sub" style="font-size:12px">Las combinaciones con más probabilidad de llegar a metas altas suelen ser las más concentradas y volátiles, y también tienen más riesgo de perder mucho. En un torneo eso es lo correcto si apuntas a ganar, pero decídanlo en equipo. Antes de comprar, confirma en Bloomberg que cada una esté en el WLS.</p>`;
+    out.querySelectorAll("[data-usar]").forEach(b=>b.onclick=()=>{cart.items=b.dataset.usar.split(",").map(t=>({t,usd:MAXPOS,wls:false}));store("gtc-cart",cart);renderAll(false);toast("Cartera reemplazada por la combinación elegida");});
+  };
+  setTimeout(paso,30);
 }
 
 /* ---------- general ---------- */
@@ -677,7 +917,7 @@ function cargar(silencioso){
       if(D&&nuevo.generado===D.generado){renderStatus();return}
       const habia=!!D;
       const abierta=$(".drawer")?$(".drawer").getAttribute("aria-label").replace("Ficha de ",""):null;
-      D=nuevo;byT={};D.acciones.forEach(a=>{a.senales=a.senales||[];a.noticias=a.noticias||[];a.kmov=a.kronos?a.kronos.mov:null;byT[a.t]=a});
+      D=nuevo;byT={};D.acciones.forEach(a=>{a.senales=a.senales||[];a.noticias=a.noticias||[];a.kmov=a.kronos?a.kronos.mov:null;if(a.earn)a.diasEarn=diasHasta(a.earn);byT[a.t]=a});(D.contagio||[]).forEach(l=>{l.dias=diasHasta(l.proximo)});aplicarBBG();
       renderAll();
       if(abierta&&byT[abierta])openFicha(abierta);
       if(habia&&silencioso)toast("Datos actualizados");

@@ -44,6 +44,24 @@ DRIVERS = {
     "SMH": "Semiconductores",
 }
 
+# Empresas grandes que no estan en la lista pero cuyos resultados mueven al resto
+LIDERES_EXTRA = {
+    "MSFT": "Microsoft", "GOOGL": "Alphabet", "META": "Meta", "AMZN": "Amazon",
+    "AAPL": "Apple", "ORCL": "Oracle", "ASML": "ASML",
+}
+
+TASA = "^TNX"   # rendimiento del bono del Tesoro de EE.UU. a 10 anos (en %)
+
+# Eventos macro dentro del desafio (fuentes: federalreserve.gov y bls.gov)
+EVENTOS_MACRO = [
+    {"fecha": "2026-10-14", "evento": "IPC (inflación) de septiembre", "tipo": "inflacion"},
+    {"fecha": "2026-10-15", "evento": "Precios al productor (PPI) de septiembre", "tipo": "inflacion"},
+    {"fecha": "2026-10-28", "evento": "Decisión de tasas de la Fed (FOMC)", "tipo": "fed"},
+    {"fecha": "2026-11-06", "evento": "Informe de empleo de octubre", "tipo": "empleo"},
+    {"fecha": "2026-11-10", "evento": "IPC (inflación) de octubre", "tipo": "inflacion"},
+    {"fecha": "2026-11-13", "evento": "Precios al productor (PPI) de octubre", "tipo": "inflacion"},
+]
+
 RECOMENDACION = {
     "strong_buy": "Compra fuerte", "buy": "Compra", "hold": "Mantener",
     "underperform": "Bajo el mercado", "sell": "Venta", "strong_sell": "Venta fuerte",
@@ -76,7 +94,7 @@ def rsi(serie, n=14):
 def descargar(tickers):
     import yfinance as yf
     for intento in range(4):
-        df = yf.download(tickers, period="1y", interval="1d", auto_adjust=True,
+        df = yf.download(tickers, period="3y", interval="1d", auto_adjust=True,
                          progress=False, threads=False)
         if not df.empty and df["Close"].notna().sum().gt(60).sum() > len(tickers) * 0.7:
             return df
@@ -213,14 +231,18 @@ def info_de(tickers):
 
 def demo(tickers, temas):
     rng = np.random.default_rng(11)
-    n = 252
+    n = 756
     idx = pd.bdate_range(end=datetime(2026, 10, 9), periods=n)
     fac = {k: rng.normal(0, 0.022, n) for k in set(temas.values())}
     mkt = rng.normal(0.0006, 0.009, n)
     close, vol, info = {}, {}, {}
     sectores = ["Technology", "Industrials", "Energy", "Financial Services", "Consumer Cyclical", "Basic Materials"]
     for t in tickers:
-        if t in DRIVERS:
+        if t == TASA:
+            close[t] = 4.2 + np.cumsum(rng.normal(0, 0.04, n)) * 0.3 - mkt.cumsum() * 3
+            vol[t] = np.zeros(n)
+            continue
+        if t in DRIVERS or t in LIDERES_EXTRA:
             rr = mkt * (1.0 if t == "ACWI" else 1.6) + rng.normal(0, 0.007, n)
         else:
             rr = mkt * 1.4 + fac[temas[t]] * rng.uniform(0.8, 1.8) + rng.normal(0, 0.028, n)
@@ -274,6 +296,11 @@ def senales(a):
         s.append(("good", f"Analistas ven {a['upside']:.0f}% de potencial al precio objetivo"))
     elif a["upside"] is not None and a["upside"] <= -10:
         s.append(("warn", f"Ya supera el precio objetivo de analistas ({a['upside']:.0f}%)"))
+    if a.get("corrTasa") is not None and abs(a["corrTasa"]) >= 0.25 and a.get("sensTasa") is not None:
+        if a["sensTasa"] < 0:
+            s.append(("warn", f"Sensible a tasas: si la tasa a 10 años sube 0,10 pp, suele caer {abs(a['sensTasa']):.1f}%"))
+        else:
+            s.append(("info", f"Sube cuando suben las tasas: +{a['sensTasa']:.1f}% por cada 0,10 pp"))
     k = a.get("kronos")
     if k and k.get("mov") is not None and k["mov"] >= 15:
         s.append(("info", f"Kronos espera mucho movimiento: ±{k['mov']:.0f}% en {k['dias']} días"))
@@ -314,6 +341,109 @@ def correr_kronos(ohlc, close, orden, es_demo):
     return pronosticar_todas(porticker, [t for t in orden if t in porticker])
 
 
+def historial_reportes(tickers, es_demo=False, indice=None):
+    """Fechas de reportes pasados (hasta 3 años) y el próximo, por ticker."""
+    pasados, proximos = {}, {}
+    if es_demo:
+        rng = np.random.default_rng(3)
+        for t in tickers:
+            base = pd.Timestamp("2023-11-01") + pd.Timedelta(days=int(rng.integers(0, 60)))
+            fechas = [base + pd.DateOffset(months=3 * k) for k in range(12)]
+            pasados[t] = [f.date() for f in fechas if f < pd.Timestamp("2026-10-01")]
+            proximos[t] = (pasados[t][-1] + pd.DateOffset(months=3)).date().isoformat()
+        return pasados, proximos
+    import yfinance as yf
+    hoy = pd.Timestamp.now().normalize()
+    for i, t in enumerate(tickers, 1):
+        print(f"  reportes {i}/{len(tickers)} {t}      ", end="\r")
+        time.sleep(0.3)
+        try:
+            ed = yf.Ticker(t).get_earnings_dates(limit=16)
+            if ed is None or ed.empty:
+                continue
+            fechas = sorted({pd.Timestamp(x).tz_localize(None).normalize() for x in ed.index})
+            pasados[t] = [f.date() for f in fechas if hoy - pd.Timedelta(days=1100) <= f < hoy]
+            futuras = [f for f in fechas if f >= hoy]
+            if futuras:
+                proximos[t] = futuras[0].date().isoformat()
+        except Exception:
+            pass
+    print()
+    print(f"Historial de reportes: {len(pasados)} de {len(tickers)} empresas")
+    return pasados, proximos
+
+
+def contagio(close, pasados, proximos, lideres, seguidores, nombres, hoy):
+    """Cuando un lider reporta, que acciones se mueven con el (mismo dia y 3 dias despues)."""
+    idx = close.index
+    mkt = close["ACWI"]
+    diaria = close.pct_change(fill_method=None).tail(250)
+
+    def ret(serie, a, b):
+        return serie.iloc[b] / serie.iloc[a] - 1
+
+    salida = []
+    for L in lideres:
+        if L not in close or L not in pasados:
+            continue
+        ventanas = []
+        for d in pasados[L]:
+            i = idx.searchsorted(pd.Timestamp(d))
+            if 1 <= i and i + 4 < len(idx):
+                ventanas.append(i)
+        if len(ventanas) < 8:
+            continue
+        rL = np.array([ret(close[L], i - 1, i + 1) - ret(mkt, i - 1, i + 1) for i in ventanas])
+        if np.std(rL) == 0 or np.isnan(rL).any():
+            continue
+        segs = []
+        for F in seguidores:
+            if F == L or F not in close:
+                continue
+            sync = np.array([ret(close[F], i - 1, i + 1) - ret(mkt, i - 1, i + 1) for i in ventanas])
+            lag = np.array([ret(close[F], i + 1, i + 4) - ret(mkt, i + 1, i + 4) for i in ventanas])
+            ok = ~(np.isnan(sync) | np.isnan(lag))
+            if ok.sum() < 8 or np.std(sync[ok]) == 0:
+                continue
+            a, b, c = rL[ok], sync[ok], lag[ok]
+            corr = float(np.corrcoef(a, b)[0, 1])
+            mismo = float(np.mean(np.sign(a) == np.sign(b)))
+            cd = diaria[L].corr(diaria[F])
+            # filtro contra casualidades: relacion fuerte en reportes Y correlacion diaria normal
+            if corr < 0.5 or mismo < 0.7 or not (cd >= 0.25):
+                continue
+            segs.append({"t": F, "corr": round(corr, 2), "mismo": round(mismo * 100),
+                         "n": int(ok.sum()), "corrDia": round(float(cd), 2),
+                         "beta": round(float(np.sum(a * b) / np.sum(a * a)), 2),
+                         "mag": round(float(np.mean(np.abs(b))) * 100, 1),
+                         "sigue": round(float(np.mean(c * np.sign(a))) * 100, 1)})
+        if not segs:
+            continue
+        segs.sort(key=lambda x: -(x["corr"] * x["mismo"]))
+        segs = segs[:5]
+        item = {"t": L, "nombre": nombres.get(L, L), "eventos": len(ventanas),
+                "movL": round(float(np.mean(np.abs(rL))) * 100, 1),
+                "proximo": proximos.get(L), "seguidores": segs}
+        if item["proximo"]:
+            item["dias"] = (date.fromisoformat(item["proximo"]) - hoy).days
+        # reporte reciente (ultimos 5 dias habiles): como reacciono y quien falta por moverse
+        ult = [d for d in pasados[L] if idx.searchsorted(pd.Timestamp(d)) >= len(idx) - 5]
+        if ult:
+            i = idx.searchsorted(pd.Timestamp(ult[-1]))
+            fin = len(idx) - 1
+            rnow = ret(close[L], max(i - 1, 0), fin) - ret(mkt, max(i - 1, 0), fin)
+            item["reciente"] = {
+                "fecha": ult[-1].isoformat(), "reaccion": round(float(rnow) * 100, 1),
+                "seguidores": [{"t": s_["t"], "esperado": round(s_["beta"] * rnow * 100, 1),
+                                "real": round(float(ret(close[s_["t"]], max(i - 1, 0), fin)
+                                                    - ret(mkt, max(i - 1, 0), fin)) * 100, 1)}
+                               for s_ in segs]}
+        salida.append(item)
+    salida.sort(key=lambda x: (x.get("dias") is None or x.get("dias", 999) < 0, x.get("dias", 999)))
+    print(f"Contagio: {len(salida)} lideres con seguidores claros")
+    return salida
+
+
 def cuadrante(r1m, r3m):
     if r1m is None or r3m is None:
         return None
@@ -330,7 +460,7 @@ def cuadrante(r1m, r3m):
 def construir(es_demo=False):
     temas = {t: tema for tema, ts in SEMILLA.items() for t in ts}
     tickers = list(temas)
-    todos = tickers + [d for d in DRIVERS if d not in tickers]
+    todos = tickers + [d for d in list(DRIVERS) + list(LIDERES_EXTRA) + [TASA] if d not in tickers]
 
     print(f"Descargando precios de {len(tickers)} acciones...")
     ohlc = None
@@ -398,6 +528,16 @@ def construir(es_demo=False):
 
     kronos = correr_kronos(ohlc, close, list(m.index), es_demo)
 
+    print("Calculando efecto contagio por resultados...")
+    lideres = list(m.index) + [t for t in LIDERES_EXTRA if t in close]
+    pasados, proximos = historial_reportes(lideres, es_demo)
+    for t in m.index:  # el proximo reporte del radar ya viene de Yahoo info
+        if isinstance(m.loc[t, "earn"], str):
+            proximos[t] = m.loc[t, "earn"]
+    nombres = {t: (info.get(t, {}).get("nombre") or t) for t in m.index}
+    nombres.update(LIDERES_EXTRA)
+    mapa = contagio(close, pasados, proximos, lideres, list(m.index), nombres, hoy)
+
     acciones = []
     for rank, t in enumerate(m.index, 1):
         row = m.loc[t]
@@ -409,6 +549,14 @@ def construir(es_demo=False):
                 betas[dn] = r(rt.cov(rd) / rd.var())
                 cors[dn] = r(rt.corr(rd))
         principal = max(cors, key=lambda k: abs(cors[k] or 0))
+        sensTasa = corrTasa = None
+        if TASA in close:
+            dt = close[TASA].diff().tail(250)
+            rt = ret[t].tail(250)
+            ok = dt.notna() & rt.notna()
+            if ok.sum() > 100 and dt[ok].var() > 0:
+                sensTasa = r(rt[ok].cov(dt[ok]) / dt[ok].var() * 0.10 * 100, 1)  # % por +0,10 pp
+                corrTasa = r(rt[ok].corr(dt[ok]))
         earn = row["earn"] if isinstance(row["earn"], str) else None
         target = inf.get("target")
         a = {
@@ -427,6 +575,7 @@ def construir(es_demo=False):
             "reco": inf.get("reco"), "nAnalistas": inf.get("nAnalistas"),
             "puntaje": r(row["puntaje"]), "grupo": int(grupos[t]),
             "driver": principal, "driverCorr": cors[principal], "betas": betas,
+            "sensTasa": sensTasa, "corrTasa": corrTasa,
             "momentum": cuadrante(r(row["r1m"], 1), r(row["r3m"], 1)),
             "hist": [r(x) for x in close[t].tail(60).tolist()],
             "noticias": inf.get("noticias") or [],
@@ -449,6 +598,12 @@ def construir(es_demo=False):
             mercado.append({"t": dn, "nombre": desc, "precio": r(ult[dn]),
                             "r1d": r(var(dn, 1), 1), "r1s": r(var(dn, 5), 1), "r1m": r(var(dn, 21), 1),
                             "hist": [r(x) for x in close[dn].tail(60).tolist()]})
+    if TASA in close and close[TASA].notna().sum() > 30:
+        tz = close[TASA]
+        bp = lambda n: r((tz.iloc[-1] - tz.iloc[-1 - n]) * 100, 0)
+        mercado.append({"t": "10Y", "nombre": "Tasa 10 años EE.UU.", "tipo": "tasa",
+                        "precio": r(tz.iloc[-1], 2), "r1d": bp(1), "r1s": bp(5), "r1m": bp(21),
+                        "hist": [r(x, 3) for x in tz.tail(60).tolist()]})
 
     return {
         "version": 2,
@@ -459,6 +614,8 @@ def construir(es_demo=False):
         "ventana": {"ini": VENTANA_INI.isoformat(), "fin": VENTANA_FIN.isoformat()},
         "liqMin": LIQUIDEZ_MIN_USD_MM,
         "kronos": bool(kronos),
+        "contagio": mapa,
+        "macro": EVENTOS_MACRO,
         "drivers": DRIVERS,
         "mercado": mercado,
         "fechas": [d.strftime("%Y-%m-%d") for d in close.index[-60:]],
