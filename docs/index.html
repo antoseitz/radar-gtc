@@ -252,7 +252,7 @@ code{font-family:var(--mono);font-size:12.5px;background:var(--sunk);border-radi
   <section id="tab-guia" hidden>
     <div class="prose">
       <h2>Cómo usar el radar</h2>
-      <p>GitHub descarga los datos de Yahoo Finance de lunes a viernes a las 8:30 y a las 18:15 (hora de Chile) y vuelve a publicar esta página. Para datos frescos en otro momento, presiona <b>Actualizar ahora</b>, luego <b>Run workflow</b>, espera unos 4 minutos y recarga.</p>
+      <p>GitHub descarga los datos de Yahoo Finance de lunes a viernes a las 8:30 y a las 18:15 (hora de Chile) y vuelve a publicar esta página. Si la tienes abierta, revisa sola cada 30 minutos (y al volver a la pestaña) y muestra los datos nuevos sin que tengas que recargar. Para datos frescos en otro momento, presiona <b>Actualizar ahora</b>, luego <b>Run workflow</b>, espera unos 4 minutos y recarga.</p>
       <p>Empieza por <b>Resumen</b>: cómo viene el mercado, qué reporta resultados y qué está moviéndose. Toca cualquier ticker para abrir su ficha con señales, opinión de analistas y noticias.</p>
       <h2>Qué significa cada cosa</h2>
       <p><b>Puntaje de torneo.</b> Busca acciones que se pueden mover mucho, no acciones seguras. Suma volatilidad de 20 días (35%), retorno de 1 mes (25%), short interest (15%) y beta (10%), estandarizados. Suma 1 punto si reporta resultados entre el 12 de octubre y el 13 de noviembre y resta 2 si transa poco.</p>
@@ -621,9 +621,27 @@ window.addEventListener("resize",()=>{clearTimeout(window._rz);window._rz=setTim
 const c0=load("gtc-cart");if(c0&&Array.isArray(c0.items))cart=c0;
 const t0=load("gtc-tab");if(t0&&$("#tab-"+t0))setTab(t0);
 renderAll();
-fetch("radar_gtc.json?v="+Date.now(),{cache:"no-store"}).then(r=>{if(!r.ok)throw 0;return r.text()})
-  .then(tx=>{D=JSON.parse(tx.replace(/(?<![\w"])-?(NaN|Infinity)(?![\w"])/g,"null"));D.acciones.forEach(a=>{a.senales=a.senales||[];a.noticias=a.noticias||[];byT[a.t]=a});renderAll()})
-  .catch(()=>{D=null;renderAll()});
+/* carga de datos + revisión automática cada 30 minutos */
+let ultimoChequeo=0;
+function cargar(silencioso){
+  ultimoChequeo=Date.now();
+  return fetch("radar_gtc.json?v="+Date.now(),{cache:"no-store"}).then(r=>{if(!r.ok)throw 0;return r.text()})
+    .then(tx=>{
+      const nuevo=JSON.parse(tx.replace(/(?<![\w"])-?(NaN|Infinity)(?![\w"])/g,"null"));
+      if(D&&nuevo.generado===D.generado){renderStatus();return}
+      const habia=!!D;
+      const abierta=$(".drawer")?$(".drawer").getAttribute("aria-label").replace("Ficha de ",""):null;
+      D=nuevo;byT={};D.acciones.forEach(a=>{a.senales=a.senales||[];a.noticias=a.noticias||[];byT[a.t]=a});
+      renderAll();
+      if(abierta&&byT[abierta])openFicha(abierta);
+      if(habia&&silencioso)toast("Datos actualizados");
+    })
+    .catch(()=>{if(!D){D=null;renderAll()}});
+}
+cargar(false);
+setInterval(()=>{if(!document.hidden)cargar(true)},30*60*1000);
+setInterval(renderStatus,60*1000);
+document.addEventListener("visibilitychange",()=>{if(!document.hidden&&Date.now()-ultimoChequeo>10*60*1000)cargar(true)});
 })();
 </script>
 </body>
