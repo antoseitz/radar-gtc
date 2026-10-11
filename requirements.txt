@@ -2,3 +2,7 @@ yfinance
 pandas
 numpy
 scipy
+einops
+huggingface_hub
+safetensors
+tqdm

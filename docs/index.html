@@ -260,6 +260,7 @@ code{font-family:var(--mono);font-size:12.5px;background:var(--sunk);border-radi
       <p><b>RSI.</b> Mide la velocidad de las últimas subidas o caídas, de 0 a 100. Sobre 70, subió muy rápido; bajo 30, cayó muy rápido.</p>
       <p><b>Volumen inusual.</b> Cuántas veces se transó esta semana comparado con su promedio de 50 días. Sobre 1,8x suele haber una noticia detrás.</p>
       <p><b>Short interest.</b> Porcentaje de acciones apostadas a la baja. Si es alto y llega una buena noticia, el precio puede dispararse cuando esos inversionistas cierran sus apuestas.</p>
+      <p><b>Kronos.</b> Modelo de IA open source entrenado con velas de 45 bolsas. Cada día simula 20 escenarios de precio para los próximos 10 días hábiles. <i>Movimiento típico</i> es cuánto suele variar el precio en esos escenarios; el abanico muestra el rango probable. Úsalo para medir riesgo y potencial de movimiento, no como predicción de dirección.</p>
       <p><b>Grupos.</b> Acciones que se mueven juntas en los últimos 90 días. Cinco del mismo grupo son una sola apuesta grande.</p>
       <h2>Antes de comprar, en Bloomberg</h2>
       <p>Yahoo no sabe qué acciones están en el índice WLS. Revisa cada candidato con <code>MEMB</code> sobre <code>WLS Index</code>, confirma la fecha de resultados con <code>ERN</code> y el movimiento esperado por opciones con <code>OMON</code>.</p>
@@ -364,6 +365,7 @@ function renderResumen(){
       ${lista(top(A.filter(a=>(a.nAnalistas||0)>=3&&a.upside>0),"upside",5,true),a=>sgn(a.upside,0),a=>`${esc(a.reco||"")} · ${a.nAnalistas||0} analistas`)}</div>
   </div>
 
+  ${kronosResumen()}
   <div class="card"><header><h2>Calendario de resultados</h2><span class="muted" style="font-size:13px">Las 5 semanas del desafío. Toca un ticker para ver su ficha.</span></header>
     <div class="calbox">${calendario()}</div></div>
 
@@ -376,6 +378,40 @@ function renderResumen(){
       <p class="sub">Si un tema completo sube o cae junto, es un factor común: comprar varias del mismo tema no diversifica.</p></div>
   </div>`;
   drawScatter();
+}
+function kronosResumen(){
+  const A=D.acciones.filter(a=>a.kronos);
+  if(!A.length)return"";
+  const dias=A[0].kronos.dias,top=A.slice().sort((p,q)=>q.kmov-p.kmov).slice(0,10),mx=Math.max(...top.map(a=>Math.max(Math.abs(a.kronos.p10),Math.abs(a.kronos.p90))),5);
+  const X=v=>50+50*v/mx;
+  return`<div class="card"><header><h2>Más movimiento esperado según Kronos</h2><span class="muted" style="font-size:13px">Rango probable de los próximos ${dias} días hábiles</span></header>
+    <p class="sub">Kronos simula muchos escenarios de precio para cada acción. La barra va del escenario pesimista (10%) al optimista (90%); el punto es el escenario central. Úsalo para ver cuánto se puede mover, no para adivinar si sube o baja.</p>
+    <div class="bars">${top.map(a=>{const k=a.kronos;return`<button class="brow" type="button" data-open="${a.t}"><span class="bname"><span class="tk">${a.t}</span><small>${esc(a.tema)}</small></span>
+      <span class="btrack"><span class="mid"></span><span style="position:absolute;top:4px;height:8px;border-radius:4px;background:var(--accent-soft);border:1px solid var(--accent);left:${X(k.p10)}%;width:${X(k.p90)-X(k.p10)}%"></span><span style="position:absolute;top:2px;width:12px;height:12px;border-radius:50%;background:var(--accent);border:2px solid var(--surface);left:calc(${X(k.p50)}% - 6px)"></span></span>
+      <span class="num" style="text-align:right;font-size:13px;font-weight:600">±${fmt(k.mov,0)}%</span></button>`}).join("")}</div>
+    <div class="legend" style="justify-content:space-between"><span>${sgn(-mx,0)}</span><span>0%</span><span>${sgn(mx,0)}</span></div></div>`;
+}
+function fanChart(a){
+  const k=a.kronos;if(!k)return"";
+  const h=(a.hist||[]).filter(x=>x!=null).slice(-40),n=h.length,m=k.fan.p50.length,W=520,H=210,L=8,R=92,T=12,B=22;
+  const all=[...h,...k.fan.p10,...k.fan.p90],mn=Math.min(...all),mx=Math.max(...all),rg=(mx-mn)||1;
+  const X=i=>L+i*(W-L-R)/(n+m-1),Y=v=>T+(1-(v-mn)/rg)*(H-T-B);
+  const band=(lo,hi)=>{const up=hi.map((v,i)=>`${X(n+i).toFixed(1)},${Y(v).toFixed(1)}`),dn=lo.map((v,i)=>`${X(n+i).toFixed(1)},${Y(v).toFixed(1)}`).reverse();return`${X(n-1)},${Y(h[n-1])} ${up.join(" ")} ${dn.join(" ")}`};
+  const hl=h.map((v,i)=>`${X(i).toFixed(1)},${Y(v).toFixed(1)}`).join(" ");
+  const med=[`${X(n-1)},${Y(h[n-1])}`,...k.fan.p50.map((v,i)=>`${X(n+i).toFixed(1)},${Y(v).toFixed(1)}`)].join(" ");
+  const lab=(v,txt)=>`<text x="${W-R+6}" y="${Y(v)+4}" style="font-family:var(--mono);font-size:10px">${txt} ${fmt(v,2)}</text>`;
+  return`<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block" role="img" aria-label="Escenarios Kronos">
+    <line x1="${X(n-1)}" x2="${X(n-1)}" y1="${T}" y2="${H-B}" stroke="var(--line)" stroke-dasharray="3 3"/>
+    <polygon points="${band(k.fan.p10,k.fan.p90)}" fill="var(--accent)" fill-opacity=".14"/>
+    <polygon points="${band(k.fan.p25,k.fan.p75)}" fill="var(--accent)" fill-opacity=".22"/>
+    <polyline points="${hl}" fill="none" stroke="var(--fg)" stroke-width="1.6" stroke-linejoin="round"/>
+    <polyline points="${med}" fill="none" stroke="var(--accent)" stroke-width="2" stroke-dasharray="5 3"/>
+    <circle cx="${X(n-1)}" cy="${Y(h[n-1])}" r="3.5" fill="var(--fg)"/>
+    ${lab(k.fan.p90[m-1],"90%")}${lab(k.fan.p50[m-1],"50%")}${lab(k.fan.p10[m-1],"10%")}
+    <text x="${X(n-1)}" y="${H-6}" text-anchor="middle" style="fill:var(--muted);font-family:var(--mono);font-size:10px">hoy</text>
+    <text x="${X(n+m-1)}" y="${H-6}" text-anchor="end" style="fill:var(--muted);font-family:var(--mono);font-size:10px">${fecha(k.fechas[m-1])}</text>
+    <text x="${L}" y="${H-6}" style="fill:var(--muted);font-family:var(--mono);font-size:10px">40 días atrás</text>
+  </svg>`;
 }
 function calendario(){
   const map={};D.acciones.forEach(a=>{if(a.earn)(map[a.earn]=map[a.earn]||[]).push(a)});
@@ -424,7 +460,7 @@ function drawScatter(){
 }
 
 /* ---------- ACCIONES ---------- */
-const COLS=[["rank","#",1],["t","Acción",0],["tema","Tema",0],["precio","Precio",1],["r1d","Día",1],["r1s","Semana",1],["r1m","Mes",1],["r3m","3 meses",1],["momentum","Momentum",0],["vol20","Vol 20d",1],["rsi","RSI",1],["earn","Resultados",0],["upside","Analistas",1],["short","Short %",1],["puntaje","Puntaje",1]];
+const COLS=[["rank","#",1],["t","Acción",0],["tema","Tema",0],["precio","Precio",1],["r1d","Día",1],["r1s","Semana",1],["r1m","Mes",1],["r3m","3 meses",1],["momentum","Momentum",0],["vol20","Vol 20d",1],["kmov","Kronos ±",1],["rsi","RSI",1],["earn","Resultados",0],["upside","Analistas",1],["short","Short %",1],["puntaje","Puntaje",1]];
 function filas(){
   const a=D.acciones.filter(x=>(!filtro.tema||x.tema===filtro.tema)&&(!filtro.mom||x.momentum===filtro.mom)&&(!filtro.ventana||x.enVentana)&&(!filtro.liquida||(x.liq??0)>=D.liqMin)&&(!filtro.q||(x.t+" "+x.nombre+" "+(x.industria||"")).toLowerCase().includes(filtro.q)));
   return a.sort((p,q)=>{const A=p[sortKey],B=q[sortKey];if(A==null)return 1;if(B==null)return-1;return(A>B?1:A<B?-1:0)*sortDir});
@@ -452,6 +488,7 @@ function renderAcciones(){
       <td class="n">${fmt(a.precio,2)}</td><td class="n">${pct(a.r1d)}</td><td class="n">${pct(a.r1s)}</td><td class="n">${pct(a.r1m)}</td><td class="n">${pct(a.r3m)}</td>
       <td>${momChip(a.momentum)}</td>
       <td class="n">${fmt(a.vol20,0)}%</td>
+      <td class="n">${a.kmov==null?'<span class="faint">–</span>':"±"+fmt(a.kmov,0)+"%"}</td>
       <td class="n ${a.rsi>=70?"down":a.rsi<=30?"up":""}">${fmt(a.rsi,0)}</td>
       <td>${a.earn?`<span class="chip ${a.enVentana?"good":""}">${fecha(a.earn)}</span>`:'<span class="faint">–</span>'}</td>
       <td class="n">${a.upside==null?'<span class="faint">–</span>':pct(a.upside,0)}</td>
@@ -460,7 +497,7 @@ function renderAcciones(){
       <td>${sigDots(a)}</td>
       <td>${spark(a.hist)}</td>
       <td><button class="add ${enC.has(a.t)?"on":""}" data-add="${a.t}" type="button" aria-label="${enC.has(a.t)?"Quitar de":"Agregar a"} la cartera">${enC.has(a.t)?"✓":"+"}</button></td>
-    </tr>`).join("")||`<tr><td colspan="18" class="muted" style="padding:20px">Ninguna acción cumple los filtros.</td></tr>`}</tbody>
+    </tr>`).join("")||`<tr><td colspan="19" class="muted" style="padding:20px">Ninguna acción cumple los filtros.</td></tr>`}</tbody>
   </table></div>`;
   const keep=id=>{const e=$(id);e.focus();const v=e.value;e.setSelectionRange?.(v.length,v.length)};
   $("#fq").oninput=e=>{filtro.q=e.target.value.toLowerCase();renderAcciones();keep("#fq")};
@@ -508,6 +545,15 @@ function openFicha(t){
       <div class="signals">${a.senales.length?a.senales.map(s=>`<div class="signal"><span class="ic ${s.tipo}">${ICON[s.tipo]}</span><span>${esc(s.texto)}</span></div>`).join(""):'<span class="empty-note">Sin señales destacadas.</span>'}</div>
       ${a.rsi!=null?`<div><span class="label">RSI ${fmt(a.rsi,0)} · 30 sobrevendida · 70 sobrecomprada</span><div class="gauge"><span style="left:calc(${Math.min(100,Math.max(0,a.rsi))}% - 1px)"></span></div></div>`:""}
     </div>
+    ${a.kronos?`<div class="card"><header><h3>Escenarios Kronos</h3><span class="faint" style="font-size:12px">Próximos ${a.kronos.dias} días hábiles</span></header>
+      ${fanChart(a)}
+      <div class="kpis" style="grid-template-columns:repeat(2,minmax(0,1fr))">
+        <div><span class="label">Movimiento típico</span><b>±${fmt(a.kronos.mov,0)}%</b><span class="faint" style="font-size:12px">en ${a.kronos.dias} días</span></div>
+        <div><span class="label">Rango probable (80%)</span><b>${sgn(a.kronos.p10,0)} a ${sgn(a.kronos.p90,0)}</b><span class="faint" style="font-size:12px">pesimista a optimista</span></div>
+        <div><span class="label">Escenario central</span><b>${pct(a.kronos.p50)}</b></div>
+        <div><span class="label">Escenarios que suben</span><b>${a.kronos.pSube}%</b><span class="faint" style="font-size:12px">solo referencia</span></div>
+      </div>
+      <p class="sub" style="margin:0">Kronos es un modelo de IA entrenado con velas de 45 bolsas. Es bueno para estimar cuánto se puede mover una acción; su dirección (sube o baja) es poco confiable a varios días.</p></div>`:""}
     <div class="card"><header><h3>Analistas y resultados</h3></header>
       <div class="kpis" style="grid-template-columns:repeat(2,minmax(0,1fr))">
         <div><span class="label">Recomendación</span><b style="font-family:var(--body)">${esc(a.reco||"–")}</b><span class="faint" style="font-size:12px">${a.nAnalistas?a.nAnalistas+" analistas":""}</span></div>
@@ -631,7 +677,7 @@ function cargar(silencioso){
       if(D&&nuevo.generado===D.generado){renderStatus();return}
       const habia=!!D;
       const abierta=$(".drawer")?$(".drawer").getAttribute("aria-label").replace("Ficha de ",""):null;
-      D=nuevo;byT={};D.acciones.forEach(a=>{a.senales=a.senales||[];a.noticias=a.noticias||[];byT[a.t]=a});
+      D=nuevo;byT={};D.acciones.forEach(a=>{a.senales=a.senales||[];a.noticias=a.noticias||[];a.kmov=a.kronos?a.kronos.mov:null;byT[a.t]=a});
       renderAll();
       if(abierta&&byT[abierta])openFicha(abierta);
       if(habia&&silencioso)toast("Datos actualizados");

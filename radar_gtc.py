@@ -79,7 +79,7 @@ def descargar(tickers):
         df = yf.download(tickers, period="1y", interval="1d", auto_adjust=True,
                          progress=False, threads=False)
         if not df.empty and df["Close"].notna().sum().gt(60).sum() > len(tickers) * 0.7:
-            return df["Close"], df["Volume"]
+            return df
         print(f"  Yahoo respondio incompleto, reintento {intento + 1}...")
         time.sleep(20 * (intento + 1))
     raise SystemExit("Yahoo no entrego precios suficientes. Se mantiene la version anterior.")
@@ -274,9 +274,44 @@ def senales(a):
         s.append(("good", f"Analistas ven {a['upside']:.0f}% de potencial al precio objetivo"))
     elif a["upside"] is not None and a["upside"] <= -10:
         s.append(("warn", f"Ya supera el precio objetivo de analistas ({a['upside']:.0f}%)"))
+    k = a.get("kronos")
+    if k and k.get("mov") is not None and k["mov"] >= 15:
+        s.append(("info", f"Kronos espera mucho movimiento: ±{k['mov']:.0f}% en {k['dias']} días"))
     if a["liq"] is not None and a["liq"] < LIQUIDEZ_MIN_USD_MM:
         s.append(("bad", "Poca liquidez: el precio puede saltar mucho"))
     return [{"tipo": t, "texto": x} for t, x in s]
+
+
+def correr_kronos(ohlc, close, orden, es_demo):
+    """Pronostico de escenarios con Kronos. Se activa con RADAR_KRONOS=1."""
+    import os
+    if es_demo:
+        rng = np.random.default_rng(5)
+        out = {}
+        for t in orden:
+            p = float(close[t].iloc[-1]); vol = float(close[t].pct_change().tail(20).std() or .03)
+            paths = p * np.exp(np.cumsum(rng.normal(0, vol, (20, 10)), axis=1))
+            from kronos_gtc import resumir
+            out[t] = resumir(paths, list(pd.bdate_range(close.index[-1] + pd.Timedelta(days=1), periods=10)), p)
+        return out
+    if os.environ.get("RADAR_KRONOS", "0") != "1" or ohlc is None:
+        return {}
+    try:
+        from kronos_gtc import pronosticar_todas
+    except Exception as e:
+        print(f"Kronos no disponible ({e}).")
+        return {}
+    print("Corriendo Kronos (puede tardar 5-10 minutos)...")
+    porticker = {}
+    for t in orden:
+        try:
+            df = pd.DataFrame({"open": ohlc["Open"][t], "high": ohlc["High"][t], "low": ohlc["Low"][t],
+                               "close": ohlc["Close"][t], "volume": ohlc["Volume"][t]}).dropna()
+            if len(df) > 60:
+                porticker[t] = df
+        except KeyError:
+            pass
+    return pronosticar_todas(porticker, [t for t in orden if t in porticker])
 
 
 def cuadrante(r1m, r3m):
@@ -298,10 +333,12 @@ def construir(es_demo=False):
     todos = tickers + [d for d in DRIVERS if d not in tickers]
 
     print(f"Descargando precios de {len(tickers)} acciones...")
+    ohlc = None
     if es_demo:
         close, volu, info = demo(todos, temas)
     else:
-        close, volu = descargar(todos)
+        ohlc = descargar(todos)
+        close, volu = ohlc["Close"], ohlc["Volume"]
         print("Descargando datos y noticias de cada empresa (2-3 minutos)...")
         info = info_de(tickers)
 
@@ -359,6 +396,8 @@ def construir(es_demo=False):
     tam = grupos.value_counts()
     grupos = grupos.map({g: i + 1 for i, g in enumerate(tam.index)})
 
+    kronos = correr_kronos(ohlc, close, list(m.index), es_demo)
+
     acciones = []
     for rank, t in enumerate(m.index, 1):
         row = m.loc[t]
@@ -391,6 +430,7 @@ def construir(es_demo=False):
             "momentum": cuadrante(r(row["r1m"], 1), r(row["r3m"], 1)),
             "hist": [r(x) for x in close[t].tail(60).tolist()],
             "noticias": inf.get("noticias") or [],
+            "kronos": kronos.get(t),
         }
         a["senales"] = senales(a)
         acciones.append(a)
@@ -418,6 +458,7 @@ def construir(es_demo=False):
         "fuente": "Datos de ejemplo simulados" if es_demo else "Yahoo Finance",
         "ventana": {"ini": VENTANA_INI.isoformat(), "fin": VENTANA_FIN.isoformat()},
         "liqMin": LIQUIDEZ_MIN_USD_MM,
+        "kronos": bool(kronos),
         "drivers": DRIVERS,
         "mercado": mercado,
         "fechas": [d.strftime("%Y-%m-%d") for d in close.index[-60:]],
