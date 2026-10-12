@@ -63,12 +63,13 @@ MAX_NUEVAS = 20
 NUEVAS = "Nuevas del día"
 
 # ---- Lista dinamica ----
-TOTAL_ACCIONES = 55          # cuantas acciones sigue el radar cada dia (sin contar equipo.txt)
+TOTAL_ACCIONES = 70          # cuantas acciones sigue el radar cada dia (sin contar equipo.txt)
 NUCLEO = [                   # 25 fijas: siempre se siguen, para tener continuidad
     "IONQ", "RGTI", "OKLO", "LEU", "CCJ", "RKLB", "ASTS", "NBIS", "CRWV", "IREN",
     "NVDA", "AMD", "TSM", "MU", "MSTR", "COIN", "HOOD", "PLTR", "APP", "JOBY",
     "KTOS", "SOFI", "AFRM", "TSLA", "MP",
 ]
+WLS_TXT = "wls.txt"          # tickers del indice WLS (solo nombres, sin datos de Bloomberg)
 EQUIPO_TXT = "equipo.txt"    # tickers que el equipo quiere seguir siempre (uno por linea)
 EQUIPO = "Elegidas por el equipo"
 # Industria de Yahoo -> tema del radar (para las acciones nuevas)
@@ -108,6 +109,23 @@ def leer_equipo():
         t = partes[0].upper().replace(" US EQUITY", "").replace(" EQUITY", "").split()[0]
         out[t] = partes[1] if len(partes) > 1 and partes[1] else "Agregada por el equipo"
     return out
+
+def leer_wls():
+    """wls.txt: un ticker por linea (los del indice WLS que interesan). Se priorizan al elegir las acciones del dia."""
+    import os
+    if not os.path.exists(WLS_TXT):
+        return set()
+    out = set()
+    for linea in open(WLS_TXT, encoding="utf-8"):
+        linea = linea.split("#")[0].strip().upper()
+        if not linea:
+            continue
+        p = linea.replace(" EQUITY", "").split()
+        if len(p) > 1 and p[1] not in ("US", "UN", "UW", "UQ", "UA", "UR", "UP", "UV"):
+            continue  # por ahora solo acciones de EE.UU. (Yahoo y horario de Chile)
+        out.add(p[0].replace("/", "-"))
+    return out
+
 
 TASA = "^TNX"   # rendimiento del bono del Tesoro de EE.UU. a 10 anos (en %)
 
@@ -552,7 +570,7 @@ def descubrir(ya, maximo=MAX_NUEVAS):
     return {t: " · ".join(dict.fromkeys(v["motivos"])) for t, v in orden}
 
 
-def preseleccion(close, volu, pool, forzadas, total):
+def preseleccion(close, volu, pool, forzadas, total, preferidas=frozenset()):
     """Elige las acciones del dia: forzadas + las de mejor pre-puntaje (volatilidad, momentum, liquidez)."""
     ret = close.pct_change(fill_method=None)
     filas = {}
@@ -571,6 +589,7 @@ def preseleccion(close, volu, pool, forzadas, total):
     if df.empty:
         return list(forzadas)
     df["pre"] = 0.5 * zscore(df["vol"]) + 0.3 * zscore(df["r1m"].abs()) + 0.2 * zscore(df["r1s"].abs())
+    df["pre"] += [0.6 if t in preferidas else 0 for t in df.index]   # bonus: estan en el WLS
     elegidas = [t for t in forzadas if t in close and close[t].notna().sum() >= 60]
     for t in df.sort_values("pre", ascending=False).index:
         if len(elegidas) >= total + len([x for x in forzadas if x not in NUCLEO]):
@@ -583,6 +602,7 @@ def preseleccion(close, volu, pool, forzadas, total):
 def construir(es_demo=False):
     temas = {t: tema for tema, ts in SEMILLA.items() for t in ts}
     equipo = leer_equipo()
+    wls = leer_wls()
     motivos, origen = {}, {}
     if es_demo:
         cands = {f"NUEV{k}": DESCUBRIR[list(DESCUBRIR)[k % len(DESCUBRIR)]] for k in range(1, 9)}
@@ -594,6 +614,12 @@ def construir(es_demo=False):
             cands = {}
     for t, mtv in cands.items():
         temas.setdefault(t, NUEVAS); motivos[t] = mtv
+    for t in sorted(wls):
+        if t not in temas:
+            temas[t] = NUEVAS
+            motivos[t] = "Está en el índice WLS y reporta durante el desafío"
+    if wls:
+        print(f"wls.txt: {len(wls)} acciones del indice WLS")
     for t, mtv in equipo.items():
         temas[t] = EQUIPO if t not in temas or temas[t] == NUEVAS else temas[t]
         motivos[t] = mtv
@@ -614,7 +640,7 @@ def construir(es_demo=False):
         close, volu = ohlc["Close"], ohlc["Volume"]
 
     forzadas = list(dict.fromkeys([t for t in NUCLEO if t in temas] + list(equipo)))
-    tickers = preseleccion(close, volu, pool, forzadas, TOTAL_ACCIONES)
+    tickers = preseleccion(close, volu, pool, forzadas, TOTAL_ACCIONES, frozenset(wls))
     for t in tickers:
         origen[t] = "equipo" if t in equipo else "nucleo" if t in NUCLEO else "base" if t in sum(SEMILLA.values(), []) else "nueva"
     print(f"Lista del dia: {len(tickers)} acciones ({sum(1 for t in tickers if origen[t]=='nueva')} nuevas)")
@@ -738,6 +764,7 @@ def construir(es_demo=False):
             "noticias": inf.get("noticias") or [],
             "motivo": motivos.get(t) if origen.get(t) in ("nueva", "equipo") else None,
             "origen": origen.get(t, "base"),
+            "enWLS": (t in wls) if wls else None,
             "kronos": kronos.get(t),
         }
         a["senales"] = senales(a)
