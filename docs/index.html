@@ -772,6 +772,17 @@ const TEMA_POR_QUE={
   "Elegidas por el equipo":"Acciones que el equipo agregó a mano en el archivo equipo.txt de GitHub (por ejemplo, encontradas en Bloomberg o ya compradas). Siempre se siguen.",
   "Biotecnología":"Entró hoy por su puntaje. Las biotecnológicas pueden saltar 30% o más con un resultado clínico o una aprobación.",
   "Cripto y mercados":"Entró hoy por su puntaje. Plataformas de inversión, bolsas y mineras de cripto: se mueven con el apetito por riesgo.",
+  "Salud":"Hospitales, seguros, diagnóstico y equipos médicos. Se mueven con sus resultados y con noticias regulatorias.",
+  "Finanzas":"Bancos, seguros y medios de pago. Sensibles a las tasas de interés y a la salud de la economía.",
+  "Consumo":"Retail, restaurantes, viajes y marcas. Dependen de cuánto gasta la gente; reaccionan fuerte a sus ventas trimestrales.",
+  "Industria":"Maquinaria, construcción, transporte y logística. Siguen el ciclo económico y los pedidos de empresas.",
+  "Energía":"Petróleo, gas, electricidad y renovables. Se mueven con el precio de la energía y la demanda de centros de datos.",
+  "Minería":"Oro, plata, cobre y otros metales. Amplifican los movimientos del precio del metal.",
+  "Internet":"Plataformas, redes sociales y publicidad digital. Reaccionan fuerte a sus resultados y a la publicidad.",
+  "Hardware y redes":"Equipos, fibra óptica y componentes para centros de datos. Muy ligadas al gasto en IA.",
+  "Tecnología":"Empresas tecnológicas que no calzan en otro tema.",
+  "Inmobiliario":"Fondos y empresas inmobiliarias. Muy sensibles a las tasas de interés.",
+  "Otras":"Acciones de tu lista de Bloomberg sin un tema claro.",
   "Nuevas del día":"No estaban en nuestra lista: el panel las encontró hoy en los rankings de Yahoo (las que más suben, las más transadas, small caps agresivas, más apostadas a la baja). Se renuevan cada día. Revisa que estén en el WLS antes de comprar."};
 function hace(f){if(!f)return"";const d=new Date(f.length<=16?f+":00Z":f),h=(Date.now()-d)/36e5;if(isNaN(h))return fecha(f);if(h<1)return"hace minutos";if(h<24)return`hace ${Math.round(h)} h`;const dd=Math.round(h/24);return dd===1?"ayer":`hace ${dd} días`}
 let notiFiltro="todas";
@@ -810,11 +821,11 @@ function secUniverso(){
   const prom=g=>{const v=g.map(a=>a.r1m).filter(x=>x!=null);return v.length?v.reduce((p,q)=>p+q,0)/v.length:0};
   const curva=g=>{const hs=g.map(a=>(a.hist||[]).filter(x=>x)).filter(h=>h.length>10),L=Math.min(...hs.map(h=>h.length));if(!hs.length||!isFinite(L))return[];return Array.from({length:L},(_,i)=>100*hs.reduce((s,h)=>s+h[h.length-L+i]/h[h.length-L],0)/hs.length)};
   const T=temas.map(t=>{const g=A.filter(a=>a.tema===t).sort((p,q)=>(q.r1m??-999)-(p.r1m??-999));return{t,g,r:prom(g),c:curva(g)}}).sort((a,b)=>(b.t==="Nuevas del día")-(a.t==="Nuevas del día")||b.r-a.r);
-  return`<section class="r-sec" id="s-univ"><div class="r-head"><span class="r-num">6</span><div><h2>¿Qué acciones seguimos y por qué?</h2><p>Hoy seguimos <b>${A.length} acciones</b>. La lista se arma sola cada día: <b>${D.nBase??"–"} fijas</b> (el núcleo, para no perder continuidad)${D.nEquipo?`, <b>${D.nEquipo} del equipo</b> (archivo equipo.txt)`:""} y <b>${D.nDinamicas??"–"} que cambian a diario</b>: las de mejor puntaje entre cientos de candidatas, incluidas ${D.nNuevas||0} que hoy aparecieron en los rankings de Yahoo. Todas cumplen precio sobre US$3 y más de US$20 millones transados al día. Las buscamos porque <b>se mueven mucho</b> (en un torneo solo gana quien se aleja del índice), son <b>fáciles de comprar y vender</b> y muchas <b>presentan resultados durante el desafío</b>. El gráfico de cada tema es el promedio de sus acciones en los últimos 3 meses.</p></div></div>
+  return`<section class="r-sec" id="s-univ"><div class="r-head"><span class="r-num">6</span><div><h2>¿Qué acciones seguimos y por qué?</h2><p>Hoy seguimos <b>${A.length} acciones</b>. ${D.nWLS?`Vienen de <b>tu lista de Bloomberg</b> (archivo wls.txt, ${D.nListaWLS} acciones del índice WLS que reportan en el desafío): cada día se analizan las <b>${D.nWLS}</b> que más se mueven, más <b>${D.nBase??"–"} fijas</b>${D.nEquipo?` y <b>${D.nEquipo} del equipo</b>`:""}.`:`La lista se arma sola cada día:`}<span ${D.nWLS?'hidden':''}> <b>${D.nBase??"–"} fijas</b> (el núcleo, para no perder continuidad)${D.nEquipo?`, <b>${D.nEquipo} del equipo</b> (archivo equipo.txt)`:""} y <b>${D.nDinamicas??"–"} que cambian a diario</b>: las de mejor puntaje entre cientos de candidatas, incluidas ${D.nNuevas||0} que hoy aparecieron en los rankings de Yahoo.</span> Todas cumplen precio sobre US$3 y más de US$20 millones transados al día. Las buscamos porque <b>se mueven mucho</b> (en un torneo solo gana quien se aleja del índice), son <b>fáciles de comprar y vender</b> y muchas <b>presentan resultados durante el desafío</b>. El gráfico de cada tema es el promedio de sus acciones en los últimos 3 meses.</p></div></div>
     <div class="themes">${T.map(x=>`<div class="th1" style="--th:${colorTema(x.t)}"><div class="th1-h"><span class="tdot" style="background:${colorTema(x.t)}"></span><b>${esc(x.t)}</b><span class="th1-r ${x.r>=0?"up":"down"}">${sgn(x.r)}<small> mes</small></span></div>
       <p>${esc(TEMA_POR_QUE[x.t]||"Tema agregado por el equipo.")}</p>${spark(x.c,300,46)}
-      <div class="th1-l">${x.g.map(a=>`<button type="button" class="th1-a" data-open="${a.t}" title="${esc(a.motivo||"")}">${av(a,1)}<span>${esc(nombreCorto(a.nombre,a.t))}${a.motivo?`<small class="mot">${esc(a.motivo.split(" · ")[0])}</small>`:a.origen==="nucleo"?'<small class="mot">Fija</small>':""}</span><span class="${(a.r1m??0)>=0?"up":"down"}">${sgn(a.r1m,0)}</span></button>`).join("")}</div></div>`).join("")}</div>
-    <p class="faint" style="margin:0;font-size:12.5px">Yahoo no indica si una acción está en el índice WLS del desafío: confírmalo en Bloomberg con <b>MEMB</b> antes de comprar.</p>
+      <div class="th1-l">${x.g.slice(0,8).map(a=>`<button type="button" class="th1-a" data-open="${a.t}" title="${esc(a.motivo||"")}">${av(a,1)}<span>${esc(nombreCorto(a.nombre,a.t))}${a.motivo?`<small class="mot">${esc(a.motivo.split(" · ")[0])}</small>`:a.origen==="nucleo"?'<small class="mot">Fija</small>':a.origen==="wls"?'<small class="mot">De mi Bloomberg</small>':""}</span><span class="${(a.r1m??0)>=0?"up":"down"}">${sgn(a.r1m,0)}</span></button>`).join("")}${x.g.length>8?`<button type="button" class="th1-a" data-tema="${esc(x.t)}" style="display:block;width:100%;text-align:center;color:var(--brand);font-weight:600">Ver las ${x.g.length} en Acciones →</button>`:""}</div></div>`).join("")}</div>
+    <p class="faint" style="margin:0;font-size:12.5px">${D.nWLS?"Las marcadas <b>De mi Bloomberg</b> están en tu lista del índice WLS. Las <b>Fijas</b> que no están en esa lista: confírmalas con <b>MEMB</b> antes de comprar.":"Yahoo no indica si una acción está en el índice WLS del desafío: confírmalo en Bloomberg con <b>MEMB</b> antes de comprar."}</p>
   </section>`;
 }
 function ideas2(){
@@ -825,7 +836,7 @@ function ideas2(){
     suben:["Suben","Las que más subieron esta semana.",top(A,"r1s").filter(a=>a.r1s>0).slice(0,8),a=>sgn(a.r1s),"semana",a=>`mes ${sgn(a.r1m)}`,"up"],
     caen:["Caen","Las que más cayeron esta semana. RSI bajo 30 = cayó muy rápido.",top(A,"r1s",false).filter(a=>a.r1s<0).slice(0,8),a=>sgn(a.r1s),"semana",a=>`RSI ${fmt(a.rsi,0)}${a.rsi!=null&&a.rsi<=30?" · sobrevendida":""}`,"down"],
     volumen:["Volumen raro","Se transaron mucho más que lo normal: suele haber una noticia detrás.",A.filter(a=>(a.volRatio||0)>=1.5).sort((p,q)=>q.volRatio-p.volRatio).slice(0,8),a=>fmt(a.volRatio,1)+"x","vs. normal",a=>`semana ${sgn(a.r1s)}`,""],
-    nuevas:["Nuevas del día","Acciones que no estaban en la lista y hoy aparecieron en los rankings de Yahoo.",A.filter(a=>a.origen==="nueva").sort((p,q)=>(q.puntaje||0)-(p.puntaje||0)).slice(0,10),a=>sgn(a.r1d),"hoy",a=>esc(a.motivo.split(" · ")[0]),""],
+    nuevas:D.nWLS?["De mi Bloomberg","Acciones de tu lista WLS (Bloomberg) con mejor puntaje hoy.",A.filter(a=>a.origen==="wls").sort((p,q)=>(q.puntaje||0)-(p.puntaje||0)).slice(0,10),a=>fmt(a.puntaje,2),"puntaje",a=>`vol. ${fmt(a.vol20,0)}%${a.enVentana?" · reporta "+fecha(a.earn):""}`,""]:["Nuevas del día","Acciones que no estaban en la lista y hoy aparecieron en los rankings de Yahoo.",A.filter(a=>a.origen==="nueva").sort((p,q)=>(q.puntaje||0)-(p.puntaje||0)).slice(0,10),a=>sgn(a.r1d),"hoy",a=>esc(a.motivo.split(" · ")[0]),""],
     analistas:["Analistas","Mayor distancia entre el precio actual y el precio objetivo de los analistas.",top(A.filter(a=>(a.nAnalistas||0)>=3&&a.upside>0),"upside").slice(0,8),a=>sgn(a.upside,0),"potencial",a=>`${esc(a.reco||"")} · ${a.nAnalistas} analistas`,"up"]};
   const [,desc,items,val,lbl,why,cls]=T[ideaTab];
   return`<div class="seg" role="tablist" style="align-self:flex-start">${Object.entries(T).map(([k,v])=>`<button type="button" role="tab" aria-selected="${k===ideaTab}" data-idea="${k}">${v[0]}</button>`).join("")}</div>
@@ -982,7 +993,7 @@ function renderAcciones(){
     <thead><tr>${COLS.map(([k,l,n])=>`<th class="sort ${n?"n":""}" data-k="${k}">${l}${sortKey===k?(sortDir>0?" ↑":" ↓"):""}</th>`).join("")}<th>Señales</th><th>60 días</th><th><span class="sr">Cartera</span></th></tr></thead>
     <tbody>${F.map(a=>`<tr class="click" data-open="${a.t}">
       <td class="n faint">${a.rank}</td>
-      <td><span class="tk">${esc(a.t)}</span>${a.origen==="nueva"?' <span class="chip good" style="font-size:10.5px;padding:0 6px">Nueva</span>':a.origen==="equipo"?' <span class="chip info" style="font-size:10.5px;padding:0 6px">Equipo</span>':a.origen==="nucleo"?' <span class="chip" style="font-size:10.5px;padding:0 6px" title="Siempre se sigue">Fija</span>':""}<span class="nm">${esc(a.nombre)}</span></td>
+      <td><span class="tk">${esc(a.t)}</span>${a.origen==="nueva"?' <span class="chip good" style="font-size:10.5px;padding:0 6px">Nueva</span>':a.origen==="equipo"?' <span class="chip info" style="font-size:10.5px;padding:0 6px">Equipo</span>':a.origen==="nucleo"?' <span class="chip" style="font-size:10.5px;padding:0 6px" title="Siempre se sigue">Fija</span>':a.origen==="wls"?' <span class="chip info" style="font-size:10.5px;padding:0 6px" title="Está en tu lista WLS de Bloomberg">WLS</span>':""}<span class="nm">${esc(a.nombre)}</span></td>
       <td>${esc(a.tema)}<span class="nm">${esc(a.industria||"")}</span></td>
       <td class="n">${fmt(a.precio,2)}</td><td class="n">${pct(a.r1d)}</td><td class="n">${pct(a.r1s)}</td><td class="n">${pct(a.r1m)}</td><td class="n">${pct(a.r3m)}</td>
       <td>${momChip(a.momentum)}</td>
@@ -1346,7 +1357,9 @@ function renderBBG(){
       <div class="bbg-opt"><h3>Plantilla con fórmulas</h3><p class="sub">Descarga un Excel con tus acciones y las fórmulas BDP (volatilidad, momentum, RSI, resultados…). Ábrelo en el Terminal, guarda y vuelve a subirlo.</p>
         <button class="btn" id="bbgTpl" type="button">Descargar plantilla</button></div>
     </div>
-    ${fs.length?'<div><button class="btn small" id="bbgClear" type="button">Borrar mis datos de Bloomberg</button></div>':""}</div>`;
+    ${fs.length?`<div class="bbg-opt" style="background:var(--brand-soft);border-color:transparent"><h3>¿Quieres que el Resumen analice estas acciones?</h3><p class="sub">Descarga <b>wls.txt</b> (solo los nombres de las acciones de EE.UU., sin datos de Bloomberg) y súbelo a la carpeta principal de GitHub reemplazando el anterior. En la próxima actualización, Resumen, Grupos, contagio y tasas usarán tu lista.</p>
+      <button class="btn primary" id="bbgWls" type="button">Descargar wls.txt</button></div>
+      <div><button class="btn small" id="bbgClear" type="button">Borrar mis datos de Bloomberg</button></div>`:""}</div>`;
   if(!fs.length){el.innerHTML=subir+`<div class="empty"><h2>Cómo se usa</h2><ol class="sub" style="margin:0;padding-left:18px;display:flex;flex-direction:column;gap:6px;max-width:75ch">
       <li>En el Terminal abre la plantilla con fórmulas (o exporta tu EQS filtrado por <b>WLS Index</b>).</li>
       <li>Espera que se llenen las celdas y guarda el archivo.</li>
@@ -1391,6 +1404,10 @@ function bindBBG(R){
   if(fi)fi.onchange=e=>{const x=e.target.files[0];if(x)cargarBBG(x);e.target.value=""};
   const pb=$("#bbgPasteBtn");if(pb)pb.onclick=()=>pegarBBG($("#bbgPaste").value);
   const tp=$("#bbgTpl");if(tp)tp.onclick=plantillaMias;
+  const wb=$("#bbgWls");if(wb)wb.onclick=()=>{const ini=D.ventana.ini,fin=D.ventana.fin;
+    const ts=Object.entries(BBG.filas).filter(([t,f])=>!t.includes(" ")&&f.wls!==false).sort((a,b)=>((b[1].earn>=ini&&b[1].earn<=fin)-(a[1].earn>=ini&&a[1].earn<=fin))||a[0].localeCompare(b[0])).map(([t])=>t);
+    const txt="# Acciones de EE.UU. de mi lista de Bloomberg (generado desde la pagina "+new Date().toISOString().slice(0,10)+").\n# Solo nombres: los datos de Bloomberg NO se suben a GitHub.\n"+ts.join("\n")+"\n";
+    const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([txt],{type:"text/plain"}));a.download="wls.txt";document.body.appendChild(a);a.click();a.remove();toast(`wls.txt con ${ts.length} acciones descargado`)};
   const c=$("#bbgClear");if(c)c.onclick=()=>{if(!confirm("¿Borrar todos tus datos de Bloomberg de este navegador?"))return;BBG=null;try{localStorage.removeItem("gtc-bbg")}catch(e){};Object.keys(byT).forEach(k=>{if(byT[k].bbgOnly)delete byT[k];else delete byT[k].bbg});renderAll(false);toast("Tus datos de Bloomberg quedaron borrados")};
   el.querySelectorAll("[data-rk]").forEach(x=>x.onclick=()=>{const k=x.dataset.rk,v=x.dataset.v;rkF[k]=v==="true"?true:v==="false"?false:v;rkF.n=30;store("gtc-rk",rkF);renderBBG()});
   const m=$("#rkMas");if(m)m.onclick=()=>{rkF.n+=50;renderBBG()};
