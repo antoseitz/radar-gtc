@@ -494,6 +494,9 @@ details.more .more-in{display:flex;flex-direction:column;gap:18px;margin-top:18p
   --hm-pos:61,214,140; --hm-neg:255,107,94}}
 .band{border-top:4px solid var(--brand)}
 .band h1{color:var(--brand)}
+.vistas{display:inline-flex;gap:2px;background:var(--sunk);border-radius:10px;padding:3px;margin:6px 0 2px;width:max-content}
+.vista{padding:5px 12px;border-radius:8px;font-size:13px;font-weight:600;color:var(--muted);text-decoration:none}
+.vista[aria-current="page"]{background:var(--surface);color:var(--brand);box-shadow:0 1px 2px rgba(0,0,0,.08)}
 .btn.primary{background:var(--brand);border-color:var(--brand);color:#fff}
 .btn.primary:hover{background:var(--brand-2);border-color:var(--brand-2)}
 .r-num{background:var(--brand);color:#fff}
@@ -519,6 +522,7 @@ details.more .more-in{display:flex;flex-direction:column;gap:18px;margin-top:18p
   <div class="band-in">
     <div class="brand">
       <h1>Radar GTC</h1>
+      <nav class="vistas" aria-label="Elegir página"><a href="./" class="vista" id="v-gen">Radar general</a><a href="wls.html" class="vista" id="v-wls">Mi lista Bloomberg</a></nav>
       <span class="band-sub">Mesa del equipo · Bloomberg Global Trading Challenge 2026</span>
       <div class="status" id="status"><span class="pill">Cargando datos…</span></div>
     </div>
@@ -591,6 +595,10 @@ const MOM={"Líder":["var(--up)","good"],"Recuperándose":["#79C29B","info"],"Pe
 const MACRO={fed:"Fed · tasas",inflacion:"Inflación",empleo:"Empleo"};
 const ICON={good:"↑",bad:"↓",warn:"!",info:"i"};
 
+const MODO_WLS=/wls\.html$/i.test(location.pathname)||new URLSearchParams(location.search).get("lista")==="wls";
+const DATA_FILE=MODO_WLS?"radar_wls.json":"radar_gtc.json";
+document.getElementById(MODO_WLS?"v-wls":"v-gen")?.setAttribute("aria-current","page");
+if(MODO_WLS)document.title="Radar GTC · Mi lista Bloomberg";
 let D=null, byT={}, cart={items:[],nota:""}, sortKey="rank", sortDir=1;
 let filtro={tema:"",mom:"",ventana:false,liquida:true,q:""};
 function toast(m){const t=$("#toast");t.textContent=m;t.hidden=false;clearTimeout(toast.h);toast.h=setTimeout(()=>t.hidden=true,2400)}
@@ -1357,7 +1365,7 @@ function renderBBG(){
       <div class="bbg-opt"><h3>Plantilla con fórmulas</h3><p class="sub">Descarga un Excel con tus acciones y las fórmulas BDP (volatilidad, momentum, RSI, resultados…). Ábrelo en el Terminal, guarda y vuelve a subirlo.</p>
         <button class="btn" id="bbgTpl" type="button">Descargar plantilla</button></div>
     </div>
-    ${fs.length?`<div class="bbg-opt" style="background:var(--brand-soft);border-color:transparent"><h3>¿Quieres que el Resumen analice estas acciones?</h3><p class="sub">Descarga <b>wls.txt</b> (solo los nombres de las acciones de EE.UU., sin datos de Bloomberg) y súbelo a la carpeta principal de GitHub reemplazando el anterior. En la próxima actualización, Resumen, Grupos, contagio y tasas usarán tu lista.</p>
+    ${fs.length?`<div class="bbg-opt" style="background:var(--brand-soft);border-color:transparent"><h3>Analizar estas acciones en la página "Mi lista Bloomberg"</h3><p class="sub">Hay dos páginas: <b>Radar general</b> (la de siempre, con acciones de Yahoo) y <b>Mi lista Bloomberg</b> (Resumen, grupos, contagio y tasas solo con tu lista). Para cambiar las acciones de "Mi lista", descarga <b>wls.txt</b> (solo nombres, sin datos de Bloomberg), súbelo a la carpeta principal de GitHub reemplazando el anterior y presiona Run workflow. El Radar general no cambia.</p>
       <button class="btn primary" id="bbgWls" type="button">Descargar wls.txt</button></div>
       <div><button class="btn small" id="bbgClear" type="button">Borrar mis datos de Bloomberg</button></div>`:""}</div>`;
   if(!fs.length){el.innerHTML=subir+`<div class="empty"><h2>Cómo se usa</h2><ol class="sub" style="margin:0;padding-left:18px;display:flex;flex-direction:column;gap:6px;max-width:75ch">
@@ -1522,7 +1530,7 @@ function buscarMejor(){
 }
 
 /* ---------- general ---------- */
-function emptyState(){return`<div class="empty"><h2>Todavía no hay datos</h2><p class="muted">La primera actualización de GitHub aún no termina. Presiona <b>Actualizar ahora</b>, luego <b>Run workflow</b>, espera unos 4 minutos y recarga esta página.</p></div>`}
+function emptyState(){if(MODO_WLS)return`<div class="empty"><h2>"Mi lista Bloomberg" todavía no tiene datos</h2><p class="muted">Se genera en la próxima actualización de GitHub a partir del archivo <b>wls.txt</b>. Presiona <b>Actualizar ahora</b> → <b>Run workflow</b>, espera unos 15 minutos y recarga. Mientras tanto, el <a href="./">Radar general</a> sigue funcionando.</p></div>`;return`<div class="empty"><h2>Todavía no hay datos</h2><p class="muted">La primera actualización de GitHub aún no termina. Presiona <b>Actualizar ahora</b>, luego <b>Run workflow</b>, espera unos 4 minutos y recarga esta página.</p></div>`}
 function setTab(t){document.querySelectorAll(".tab").forEach(b=>b.setAttribute("aria-selected",b.dataset.tab===t));["resumen","acciones","grupos","cartera","bbg","guia"].forEach(k=>$("#tab-"+k).hidden=k!==t);if(t==="grupos"&&D)drawHM();store("gtc-tab",t);window.scrollTo({top:0})}
 function renderAll(all=true){renderStatus();renderClock();lineaTiempo();renderBBG();if(all){renderResumen();renderGrupos()}renderAcciones();renderCartera()}
 document.querySelectorAll(".tab").forEach(b=>b.onclick=()=>setTab(b.dataset.tab));
@@ -1545,7 +1553,7 @@ renderAll();
 let ultimoChequeo=0;
 function cargar(silencioso){
   ultimoChequeo=Date.now();
-  return fetch("radar_gtc.json?v="+Date.now(),{cache:"no-store"}).then(r=>{if(!r.ok)throw 0;return r.text()})
+  return fetch(DATA_FILE+"?v="+Date.now(),{cache:"no-store"}).then(r=>{if(!r.ok)throw 0;return r.text()})
     .then(tx=>{
       const nuevo=JSON.parse(tx.replace(/(?<![\w"])-?(NaN|Infinity)(?![\w"])/g,"null"));
       if(D&&nuevo.generado===D.generado){renderStatus();return}
