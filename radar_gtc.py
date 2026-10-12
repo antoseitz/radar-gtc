@@ -280,6 +280,7 @@ def info_de(tickers):
             f = {
                 "nombre": inf.get("shortName") or inf.get("longName"),
                 "pais": inf.get("country"),
+                "bolsa": inf.get("exchange"),   # NMS/NGM/NCM = Nasdaq, NYQ = NYSE, ASE, PCX...
                 "sector": inf.get("sector"),
                 "industria": inf.get("industry"),
                 "desc": (desc[:260] + "…") if len(desc) > 260 else (desc + "." if desc else None),
@@ -326,7 +327,7 @@ def demo(tickers, temas):
             rr = mkt * 1.4 + fac[temas[t]] * rng.uniform(0.8, 1.8) + rng.normal(0, 0.028, n)
             d = int(rng.integers(-6, 45))
             p = float(rng.uniform(5, 300))
-            info[t] = {"nombre": f"Ejemplo {t}", "pais": "United States",
+            info[t] = {"nombre": f"Ejemplo {t}", "pais": "United States", "bolsa": ["NMS", "NYQ"][int(rng.integers(0, 2))],
                        "sector": sectores[hash(temas[t]) % len(sectores)],
                        "industria": f"Industria de ejemplo ({temas[t]})",
                        "desc": f"Empresa de ejemplo del tema {temas[t]}. Los datos reales llegan con la próxima actualización.",
@@ -754,7 +755,7 @@ def construir(es_demo=False, modo_wls=False):
         target = inf.get("target")
         a = {
             "t": t, "rank": rank, "nombre": inf.get("nombre") or t, "tema": row["tema"],
-            "pais": inf.get("pais"), "sector": inf.get("sector"), "industria": inf.get("industria"),
+            "pais": inf.get("pais"), "bolsa": inf.get("bolsa"), "sector": inf.get("sector"), "industria": inf.get("industria"),
             "desc": inf.get("desc"), "web": inf.get("web"), "mcap": inf.get("mcap"),
             "precio": r(ult[t]), "r1d": r(row["r1d"], 1), "r1s": r(row["r1s"], 1),
             "r1m": r(row["r1m"], 1), "r3m": r(row["r3m"], 1), "r6m": r(row["r6m"], 1),
