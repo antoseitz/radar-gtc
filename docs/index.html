@@ -1154,9 +1154,10 @@ function renderCartera(){
 /* ---------- BLOOMBERG (privado, solo en este navegador) ---------- */
 let BBG=load("gtc-bbg");
 function cargarLib(){return window.XLSX?Promise.resolve():new Promise((ok,no)=>{const sc=document.createElement("script");sc.src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";sc.onload=ok;sc.onerror=()=>no(new Error("lib"));document.head.appendChild(sc)})}
-function aISO(v){if(v==null||v==="")return null;if(v instanceof Date&&!isNaN(v))return new Date(v.getTime()-v.getTimezoneOffset()*6e4).toISOString().slice(0,10);
+function aISO(v,dm){if(v==null||v==="")return null;if(v instanceof Date&&!isNaN(v))return new Date(v.getTime()-v.getTimezoneOffset()*6e4).toISOString().slice(0,10);
   if(typeof v==="number"&&v>20000&&v<80000){const d=new Date(Math.round((v-25569)*864e5));return d.toISOString().slice(0,10)}
-  const s=String(v).trim();let m=s.match(/^(\d{4})-(\d{2})-(\d{2})/);if(m)return m[0];m=s.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})$/);if(m)return`${m[3]}-${m[2].padStart(2,"0")}-${m[1].padStart(2,"0")}`;return null}
+  const s=String(v).trim();let m=s.match(/^(\d{4})-(\d{2})-(\d{2})/);if(m)return m[0];
+  m=s.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})$/);if(m){let a=+m[1],b=+m[2];const diaPrimero=a>12||(dm&&b<=12);const d=diaPrimero?a:b,mm=diaPrimero?b:a;if(mm<1||mm>12||d<1||d>31)return null;return`${m[3]}-${String(mm).padStart(2,"0")}-${String(d).padStart(2,"0")}`}return null}
 function aNum(v){if(v==null||v==="")return null;if(typeof v==="number")return isFinite(v)?v:null;const s=String(v).trim();if(/^#|N\/A|Invalid|Requesting/i.test(s))return null;const x=parseFloat(s.replace(/\s/g,"").replace(/\.(?=\d{3}(\D|$))/g,"").replace(",","."));return isFinite(x)?x:null}
 function claveTicker(v){
   const tk=String(v||"").trim().toUpperCase().replace(/\s+EQUITY$/,"").split(/\s+/);
@@ -1164,114 +1165,238 @@ function claveTicker(v){
   if(tk.length>=2&&!["US","UN","UW","UQ","UA","UR","UP","UV"].includes(tk[1]))return tk[0]+" "+tk[1];
   return tk[0];
 }
+/* lee una hoja (EQS exportado, plantilla con BDP o celdas pegadas). Devuelve cuantas filas leyo. */
 function procesarFilas(rows,origen){
   if(!rows||!rows.length)return 0;
-  // encontrar la fila de encabezados (EQS a veces trae títulos arriba)
-  let hi=rows.slice(0,20).findIndex(r=>(r||[]).some(x=>/TICKER|SECURITY|^NAME$/i.test(String(x||"").trim())));
+  let hi=rows.slice(0,25).findIndex(r=>(r||[]).some(x=>/TICKER|SECURITY|^NAME$/i.test(String(x||"").trim())));
   if(hi<0)hi=0;
-  const H=rows[hi].map(h=>String(h||"").toUpperCase().trim());
-  const col=(inc,exc=[])=>H.findIndex(h=>inc.some(x=>h.includes(x))&&!exc.some(x=>h.includes(x)));
-  const c={t:col(["TICKER"]),sec:col(["SECURITY"]),nom:col(["SHORT NAME","NAME"],["TICKER","INDUSTRY","SECTOR"]),
-    px:col(["PX_LAST","LAST PRICE","PRICE"],["TARGET","CHG","CHANGE"]),chg:col(["CHG_PCT","% CHG","CHANGE","CHG"]),mcap:col(["MKT_CAP","MKT CAP","MARKET CAP"]),
-    iv:col(["IMPVOL","IMP_VOL","IVOL","IMPLIED VOL","IMPL VOL"]),hv:col(["VOLATILITY_30D","VOLATILITY 30","VOLATILITY"],["IMPL","IMPVOL","IMP_VOL"]),
-    beta:col(["BETA"]),earn:col(["REPORT","EARN","ANNOUNCE"]),si:col(["SI_PERCENT","SHORT INT","SHORT_INT"]),tg:col(["TARGET"]),ind:col(["INDUSTRY"]),wls:col(["WLS"])};
+  const H=rows[hi].map(h=>String(h||"").toUpperCase().replace(/\s+/g," ").trim());
+  // busca por prioridad: el primer nombre de la lista que aparezca gana
+  const col=(inc,exc=[])=>{for(const x of inc){const i=H.findIndex(h=>h.includes(x)&&!exc.some(e=>h.includes(e)));if(i>=0)return i}return -1};
+  const NOVOL=["IMPL","IMPVOL","IMP_VOL","IVOL"];
+  const c={t:col(["TICKER"]),sec:col(["SECURITY"]),nom:col(["SHORT NAME","NAME"],["TICKER","INDUSTRY","SECTOR","IND NAME"]),
+    px:col(["PX_LAST","LAST PRICE","PX LAST","PRICE"],["TARGET","TGT","CHG","CHANGE","HIGH","LOW"]),
+    chg:col(["CHG_PCT_1D","CHG PCT 1D","1D CHG","% CHG","CHG_PCT","CHANGE %","CHG"],["1M","3M","MTHLY","MONTH","QUARTER","MA ","50D","YTD","5D","NET"]),
+    r1m:col(["CHG_PCT_1M","CHG PCT 1M","MTHLY CHG","MONTHLY CHANGE","MONTHLY CHG","1M CHG","% CHG 1M","1 MONTH","TOTAL RETURN 1M","RETURN 1M"],["VOL","AVG","NET"]),
+    r3m:col(["CHG_PCT_3M","CHG PCT 3M","QUARTERLY CHANGE","3M CHG","3 MONTH","RETURN 3M"],["VOL","AVG","NET"]),
+    mcap:col(["CUR_MKT_CAP","MKT CAP","MARKET CAP"]),
+    iv:col(["IMPVOL","IMP_VOL","IMPLIED VOL","IMPL VOL","IVOL"]),
+    hv:(()=>{const i=col(["VOLATILITY_30D","VOLATILITY 30","VOL 30","30D VOL","30 DAY VOL"],NOVOL);return i>=0?i:col(["VOLATILITY"],[...NOVOL,"90","260","360","180"])})(),
+    hv90:col(["VOLATILITY_90D","VOLATILITY 90","VOL 90","90D VOL","90 DAY VOL"],NOVOL),
+    beta:col(["EQY_BETA","BETA"]),earn:col(["EXPECTED_REPORT_DT","EXP REP","REPORT DATE","REPORT","ANNOUNCE","EARN"],["SURPRISE","GROWTH","YIELD"]),
+    si:col(["SI_PERCENT","SHORT INT","SHORT_INT","SI %"],["RATIO","DAYS"]),
+    tg:col(["BEST_TARGET_PRICE","TARGET PX:D-1","TARGET PRICE","TARGET PX","TARGET"],["Y-1"]),ind:col(["GICS_INDUSTRY_NAME","INDUSTRY","IND NAME"]),wls:col(["WLS"]),
+    rsi:col(["RSI"]),tv:col(["AVG D VAL","AVG DAILY VAL","AVERAGE DAILY VAL","VALUE TRADED","TURNOVER","TRADED VAL"],["AVAT"]),
+    rating:col(["BEST_ANALYST_RATING","ANALYST RATING","ANALYST_RATING","RATING"]),pais:col(["COUNTRY"]),
+    sent:col(["NEWS SENT","SENTIMENT"]),heat:col(["NEWS HEAT"]),hi52:col(["HIGH_52WEEK","52WK HIGH","52 WEEK HIGH","52W HIGH"])};
   if(c.t<0&&c.sec<0)c.t=0;
+  // EQS con "LCL": montos en moneda local (solo comparables en USD para EE.UU.)
+  const local=rows.slice(0,hi).some(r=>(r||[]).some(x=>/^LCL$/i.test(String(x||"").trim())));
+  const dm=c.earn>=0&&rows.slice(hi+1,hi+400).some(r=>{const m=String((r||[])[c.earn]||"").match(/^(\d{1,2})[\/-]\d{1,2}[\/-]\d{4}$/);return m&&+m[1]>12});
   if(!BBG)BBG={fecha:null,archivo:null,filas:{}};
   let n=0;
-  rows.slice(hi+1).forEach(r=>{if(!r)return;let raw=c.t>=0?r[c.t]:null;if(!raw&&c.sec>=0)raw=r[c.sec];const t=claveTicker(raw);
+  rows.slice(hi+1).forEach(r=>{if(!r)return;let raw=c.t>=0?r[c.t]:null;if(!raw&&c.sec>=0)raw=r[c.sec];
+    if(/SECURIT|\(|^TICKER/i.test(String(raw||"")))return;
+    const t=claveTicker(raw);
     if(!t||t==="TICKER CORTO"||t==="TICKER"||/^#/.test(t))return;
     const g=k=>c[k]>=0?r[c[k]]:null,txt=v=>v!=null&&v!==""&&!/^#|N\/A/.test(String(v))?String(v):null;
-    const prev=BBG.filas[t]||{};
-    const f={...prev,px:aNum(g("px"))??prev.px??null,chg:aNum(g("chg"))??prev.chg??null,mcap:aNum(g("mcap"))??prev.mcap??null,hv:aNum(g("hv"))??prev.hv??null,iv:aNum(g("iv"))??prev.iv??null,
-      beta:aNum(g("beta"))??prev.beta??null,earn:aISO(g("earn"))??prev.earn??null,si:aNum(g("si"))??prev.si??null,target:aNum(g("tg"))??prev.target??null,ind:txt(g("ind"))??prev.ind??null,
+    const prev=BBG.filas[t]||{},N=k=>aNum(g(k))??prev[k]??null;
+    const f={...prev,px:N("px"),chg:N("chg"),r1m:N("r1m"),r3m:N("r3m"),mcap:N("mcap"),hv:N("hv"),hv90:N("hv90"),iv:N("iv"),beta:N("beta"),si:N("si"),rsi:N("rsi"),
+      tv:N("tv"),rating:N("rating"),sent:N("sent"),heat:N("heat"),hi52:N("hi52"),
+      earn:aISO(g("earn"),dm)??prev.earn??null,target:aNum(g("tg"))??prev.target??null,ind:txt(g("ind"))??prev.ind??null,pais:txt(g("pais"))??prev.pais??null,
       nombre:txt(g("nom"))??prev.nombre??null,sec:txt(g("sec"))??prev.sec??(String(raw).toUpperCase().includes("EQUITY")?String(raw):`${t.includes(" ")?t:t+" US"} Equity`)};
+    if(c.tv>=0)f.tvUSD=!t.includes(" "); // fuera de EE.UU. el monto suele venir en moneda local
     const w=String(g("wls")||"").trim().toUpperCase();f.wls=w.startsWith("S")||w.startsWith("Y")?true:w.startsWith("N")?false:(prev.wls??null);
     BBG.filas[t]=f;n++});
-  if(!n)return 0;
-  BBG.fecha=new Date().toISOString();BBG.archivo=origen;store("gtc-bbg",BBG);aplicarBBG();renderAll(false);
   return n;
+}
+function terminarCarga(n,origen){
+  if(!n)return;
+  BBG.fecha=new Date().toISOString();BBG.archivo=origen;
+  try{localStorage.setItem("gtc-bbg",JSON.stringify(BBG))}catch(e){toast("El archivo es muy grande para guardarlo: se usará solo hasta que cierres la página.")}
+  aplicarBBG();renderAll(false);
 }
 async function cargarBBG(file){
   try{await cargarLib()}catch(e){toast("No se pudo cargar el lector de Excel. Revisa tu conexión.");return}
+  toast("Leyendo el Excel…");
   let wb;try{wb=XLSX.read(await file.arrayBuffer(),{cellDates:true})}catch(e){toast("No se pudo leer el archivo.");return}
-  const sh=wb.Sheets["Datos"]||wb.Sheets[wb.SheetNames.find(nm=>!/instruc/i.test(nm))||wb.SheetNames[0]];
-  const n=procesarFilas(XLSX.utils.sheet_to_json(sh,{header:1,raw:true,defval:null}),file.name);
-  toast(n?`Mi Bloomberg: ${n} acciones agregadas o actualizadas`:"No encontré una columna de tickers en ese archivo.");
+  // lee todas las hojas con datos (no la de instrucciones); las repetidas se combinan
+  let n=0;const vistos=new Set();
+  wb.SheetNames.filter(nm=>!/instruc/i.test(nm)).forEach(nm=>{const antes=Object.keys(BBG?.filas||{}).length;
+    n+=procesarFilas(XLSX.utils.sheet_to_json(wb.Sheets[nm],{header:1,raw:true,defval:null}),file.name);vistos.add(nm)});
+  terminarCarga(n,file.name);
+  toast(n?`Mi Bloomberg: ${Object.keys(BBG.filas).length.toLocaleString("es-CL")} acciones cargadas. Mira el ranking.`:"No encontré una columna de tickers en ese archivo.");
+  if(n)setTimeout(()=>{const r=document.getElementById("rk-top");if(r)r.scrollIntoView({behavior:"smooth",block:"start"})},150);
 }
 function pegarBBG(texto){
   const lineas=String(texto||"").replace(/\r/g,"").split("\n").filter(l=>l.trim());
   if(!lineas.length){toast("Pega primero las celdas copiadas desde Excel.");return}
   const sep=lineas[0].includes("\t")?"\t":lineas[0].includes(";")?";":",";
   let rows=lineas.map(l=>l.split(sep).map(x=>x.trim()));
-  // si pegaste solo tickers sin encabezado, se agrega uno
   if(!rows.slice(0,20).some(r=>r.some(x=>/TICKER|SECURITY/i.test(x))))rows=[["Ticker",...rows[0].slice(1).map((_,i)=>"Col"+i)],...rows];
-  const n=procesarFilas(rows,"Pegado desde Excel");
+  const n=procesarFilas(rows,"Pegado desde Excel");terminarCarga(n,"Pegado desde Excel");
   toast(n?`Mi Bloomberg: ${n} acciones agregadas o actualizadas`:"No encontré tickers en lo que pegaste.");
   if(n){const ta=$("#bbgPaste");if(ta)ta.value=""}
 }
+const CAMPOS_BBG=[["PX_LAST"],["CHG_PCT_1D"],["CUR_MKT_CAP","EQY_FUND_CRNCY=USD"],["VOLATILITY_30D"],["30DAY_IMPVOL_100.0%MNY_DF"],["EQY_BETA"],["EXPECTED_REPORT_DT"],
+  ["SI_PERCENT_EQUITY_FLOAT"],["BEST_TARGET_PRICE"],["GICS_INDUSTRY_NAME"],["CHG_PCT_1M"],["CHG_PCT_3M"],["VOLATILITY_90D"],["RSI_14D"],["TURNOVER","EQY_FUND_CRNCY=USD"],
+  ["BEST_ANALYST_RATING"],["COUNTRY_ISO"]];
 async function plantillaMias(){
   try{await cargarLib()}catch(e){toast("No se pudo preparar el Excel. Revisa tu conexión.");return}
-  const ts=Object.keys(BBG?.filas||{});const base=ts.length?ts:D.acciones.map(a=>a.t);
-  const campos=["PX_LAST","CHG_PCT_1D","CUR_MKT_CAP","VOLATILITY_30D","30DAY_IMPVOL_100.0%MNY_DF","EQY_BETA","EXPECTED_REPORT_DT","SI_PERCENT_EQUITY_FLOAT","BEST_TARGET_PRICE","GICS_INDUSTRY_NAME"];
-  const ws=XLSX.utils.aoa_to_sheet([["Ticker","Security",...campos,"En WLS (S/N)"]]);
+  const ts=Object.keys(BBG?.filas||{});let base=ts.length?ts:D.acciones.map(a=>a.t);
+  base=base.sort((a,b)=>(a.includes(" ")-b.includes(" "))||a.localeCompare(b));
+  const campos=CAMPOS_BBG;
+  const ws=XLSX.utils.aoa_to_sheet([["Ticker","Security",...campos.map(x=>x[0]),"En WLS (S/N)"]]);
   base.forEach((t,k)=>{const r=k+2,f=BBG?.filas[t];const sec=f?.sec||`${t.includes(" ")?t:t+" US"} Equity`;
     ws["A"+r]={t:"s",v:t};ws["B"+r]={t:"s",v:sec};
-    campos.forEach((_,j)=>{const cl=XLSX.utils.encode_col(j+2);ws[cl+r]={t:"n",f:`BDP($B${r},${cl}$1)`,z:j===6?"yyyy-mm-dd":undefined}});
+    campos.forEach(([_,ov],j)=>{const cl=XLSX.utils.encode_col(j+2);ws[cl+r]={t:"n",f:ov?`BDP($B${r},${cl}$1,"${ov}")`:`BDP($B${r},${cl}$1)`,z:j===6?"yyyy-mm-dd":undefined}});
     ws[XLSX.utils.encode_col(campos.length+2)+r]={t:"s",v:f?.wls===true?"S":f?.wls===false?"N":""}});
   ws["!ref"]=XLSX.utils.encode_range({s:{r:0,c:0},e:{r:base.length,c:campos.length+2}});
-  ws["!cols"]=[{wch:9},{wch:16},...campos.map(()=>({wch:14})),{wch:12}];
+  ws["!cols"]=[{wch:10},{wch:18},...campos.map(()=>({wch:13})),{wch:12}];
   const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,"Datos");
   XLSX.writeFile(wb,"Mis_acciones_Bloomberg.xlsx");
 }
 function aplicarBBG(){
   if(!BBG||!D)return;
   Object.entries(BBG.filas).forEach(([t,f])=>{
-    if(!byT[t]){byT[t]={t,nombre:t,tema:"Bloomberg",industria:f.ind,rank:"–",vol20:f.hv||f.iv,earn:f.earn,enVentana:!!f.earn&&f.earn>=D.ventana.ini&&f.earn<=D.ventana.fin,
+    const mov=f.iv??f.hv??f.hv90??null;
+    if(!byT[t]||byT[t].bbgOnly){byT[t]={t,nombre:f.nombre||t,tema:"Bloomberg",industria:f.ind,pais:f.pais,rank:"–",vol20:mov,earn:f.earn,enVentana:!!f.earn&&f.earn>=D.ventana.ini&&f.earn<=D.ventana.fin,
       betas:{ACWI:f.beta??1},grupo:"–",senales:[],noticias:[],hist:[],precio:f.px,bbgOnly:true}}
     const a=byT[t];a.bbg=f;
+    if(f.earn&&!a.bbgOnly&&f.earn!==a.earn){a.earnYahoo=a.earnYahoo||a.earn;a.earn=f.earn;a.enVentana=f.earn>=D.ventana.ini&&f.earn<=D.ventana.fin;a.diasEarn=diasHasta(f.earn)} // Bloomberg manda en la fecha
     if(f.wls!=null){const it=cart.items.find(i=>i.t===t);if(it)it.wls=f.wls}
   });
 }
+
+/* ---------- RANKING con los datos de Bloomberg (todo se calcula aqui, en tu navegador) ---------- */
+let rkF=Object.assign({reg:"US",win:true,liq:true,n:30},load("gtc-rk")||{});
+const PESOS_RK=[["mov",.35,"Cuánto se mueve (volatilidad)"],["r1m",.25,"Momentum: cuánto subió el último mes"],["si",.15,"Short interest (posible squeeze)"],["beta",.10,"Beta: amplifica al mercado"],["sent",.10,"Tono de las noticias"]];
+function rankingBBG(){
+  const all=Object.entries(BBG?.filas||{}).map(([t,f])=>({t,f,us:!t.includes(" ")}));
+  const ini=D.ventana.ini,fin=D.ventana.fin;
+  let u=all.filter(x=>rkF.reg==="US"?x.us:true);
+  u.forEach(x=>{const f=x.f;x.mov=f.iv??f.hv??f.hv90??null;x.r1m=f.r1m;x.si=f.si;x.beta=f.beta;x.sent=f.sent;x.rsi=f.rsi;
+    x.win=!!f.earn&&f.earn>=ini&&f.earn<=fin;x.liq=f.tvUSD?f.tv:null;x.up=f.target&&f.px?(f.target/f.px-1)*100:null});
+  const base=u.length;
+  if(rkF.win)u=u.filter(x=>x.win);
+  if(rkF.liq)u=u.filter(x=>x.liq==null||x.liq>=20e6);
+  const cob={};
+  PESOS_RK.forEach(([k])=>{const v=u.map(x=>x[k]).filter(v=>v!=null&&isFinite(v));cob[k]=v.length;
+    const m=v.reduce((a,b)=>a+b,0)/(v.length||1),s=Math.sqrt(v.reduce((a,b)=>a+(b-m)**2,0)/Math.max(1,v.length-1))||1;
+    u.forEach(x=>x["z_"+k]=x[k]==null||!isFinite(x[k])?null:Math.max(-3,Math.min(3,(x[k]-m)/s)))});
+  u.forEach(x=>{
+    const zm=x.z_mov??x.z_beta??0; // si no hay volatilidad, se usa la beta como reemplazo
+    x.score=.35*zm+.25*(x.z_r1m??0)+.15*(x.z_si??0)+.10*(x.z_beta??0)+.10*(x.z_sent??0)+(x.win?1:0)
+      -(x.rsi!=null&&x.rsi>80?.5:0)-(!rkF.liq&&x.liq!=null&&x.liq<20e6?2:0)});
+  u.sort((a,b)=>b.score-a.score);
+  // cartera sugerida: las mejores 5, maximo 1 por industria
+  const top=[],inds=new Set();
+  for(const x of u){const ind=x.f.ind||x.t;if(inds.has(ind))continue;top.push(x);inds.add(ind);if(top.length===5)break}
+  return{u,top,cob,base,total:all.length,nUS:all.filter(x=>x.us).length};
+}
+function scatterRK(R){
+  const u=R.u.slice(0,400);if(u.length<3)return"";
+  const xs=R.cob.r1m>=u.length*.3?"r1m":"rsi",ys=R.cob.mov>=u.length*.3?"mov":"beta";
+  const topS=new Set(R.top.map(p=>p.t));const pts=u.filter(p=>p[xs]!=null&&p[ys]!=null);if(pts.length<3)return"";
+  const q=(a,f)=>{const s=a.slice().sort((x,y)=>x-y);return s[Math.min(s.length-1,Math.floor(f*s.length))]};
+  const xv=pts.map(p=>p[xs]),yv=pts.map(p=>p[ys]);
+  const tp=pts.filter(p=>topS.has(p.t)),pad=(a,b,f)=>(b-a)*f;
+  let x0=Math.min(q(xv,.02),...tp.map(p=>p[xs])),x1=Math.max(q(xv,.98),...tp.map(p=>p[xs])),y0=Math.min(q(yv,.02),0),y1=Math.max(q(yv,.98),...tp.map(p=>p[ys]));
+  x0-=pad(x0,x1,.04);x1+=pad(x0,x1,.12);y1+=pad(y0,y1,.08);
+  const W=680,Hh=300,L=46,Rr=16,T=14,B=38,sx=v=>L+(Math.max(x0,Math.min(x1,v))-x0)/((x1-x0)||1)*(W-L-Rr),sy=v=>T+(1-(Math.max(y0,Math.min(y1,v))-y0)/((y1-y0)||1))*(Hh-T-B);
+    const ticks=(a,b,n=5)=>Array.from({length:n},(_,i)=>a+(b-a)*i/(n-1));
+  const lx={r1m:"Cambio último mes (%)",rsi:"RSI 14 días"}[xs],ly={mov:"Volatilidad (%)",beta:"Beta"}[ys];
+  const dots=pts.filter(p=>!topS.has(p.t)).map(p=>`<circle cx="${sx(p[xs]).toFixed(1)}" cy="${sy(p[ys]).toFixed(1)}" r="3.2" fill="${p.win?"var(--up)":"var(--faint)"}" fill-opacity="${p.win?.45:.35}"><title>${esc(p.t)} · ${esc(p.f.nombre||"")}</title></circle>`).join("");
+  const puestos=[];const tops=pts.filter(p=>topS.has(p.t)).sort((a,b)=>sy(a[ys])-sy(b[ys])).map(p=>{const cx=sx(p[xs]),cy=sy(p[ys]);let ly=cy+4;
+    while(puestos.some(([x,y])=>Math.abs(x-cx)<70&&Math.abs(y-ly)<14))ly+=14;puestos.push([cx,ly]);
+    return`<g><circle cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="6" fill="var(--brand)" stroke="var(--surface)" stroke-width="2"><title>${esc(p.t)}</title></circle><text x="${(cx+9).toFixed(1)}" y="${ly.toFixed(1)}" font-size="12" font-weight="700" fill="var(--fg)" paint-order="stroke" stroke="var(--surface)" stroke-width="3">${esc(p.t)}</text></g>`}).join("");
+  const zx=x0<0&&x1>0?`<line x1="${sx(0)}" x2="${sx(0)}" y1="${T}" y2="${Hh-B}" stroke="var(--line)" stroke-dasharray="3 3"/>`:"";
+  return`<div class="card"><header><h3>Dónde está cada acción</h3><span class="meta">${pts.length} acciones · arriba a la derecha = se mueve mucho y viene subiendo</span></header>
+  <svg viewBox="0 0 ${W} ${Hh}" style="width:100%;height:auto" role="img" aria-label="${ly} versus ${lx}">
+    ${ticks(y0,y1).map(v=>`<line x1="${L}" x2="${W-Rr}" y1="${sy(v)}" y2="${sy(v)}" stroke="var(--line-soft)"/><text x="${L-6}" y="${sy(v)+4}" font-size="11" text-anchor="end" fill="var(--muted)">${fmt(v,ys==="beta"?1:0)}</text>`).join("")}
+    ${ticks(x0,x1).map(v=>`<text x="${sx(v)}" y="${Hh-B+16}" font-size="11" text-anchor="middle" fill="var(--muted)">${fmt(Math.round(v)||0,0)}</text>`).join("")}
+    ${zx}${dots}${tops}
+    <text x="${(L+W-Rr)/2}" y="${Hh-4}" font-size="12" text-anchor="middle" fill="var(--muted)">${lx}</text>
+    <text x="12" y="${(T+Hh-B)/2}" font-size="12" text-anchor="middle" fill="var(--muted)" transform="rotate(-90 12 ${(T+Hh-B)/2})">${ly}</text>
+  </svg>
+  <div style="display:flex;gap:14px;flex-wrap:wrap;font-size:12px" class="muted"><span><i style="display:inline-block;width:10px;height:10px;border-radius:50%;background:var(--brand);vertical-align:-1px"></i> Cartera sugerida</span><span><i style="display:inline-block;width:10px;height:10px;border-radius:50%;background:var(--up);opacity:.6;vertical-align:-1px"></i> Reporta durante el torneo</span><span><i style="display:inline-block;width:10px;height:10px;border-radius:50%;background:var(--faint);opacity:.6;vertical-align:-1px"></i> No reporta en el torneo</span></div></div>`;
+}
+function filaRK(x,i,enC){const f=x.f,mx=4;const w=Math.max(4,Math.min(100,(x.score+1.5)/mx*100));
+  return`<tr><td class="n faint">${i+1}</td><td>${tkBtn(x.t)}<span class="nm">${esc(f.nombre||"")}${x.us?"":` · ${esc(f.pais||x.t.split(" ")[1])}`}</span></td>
+    <td><span class="nm" style="max-width:190px;font-size:12px;color:var(--fg)">${esc(f.ind||"–")}</span></td>
+    <td>${f.earn?`<span class="chip ${x.win?"good":""}">${fecha(f.earn)}</span>`:'<span class="faint">–</span>'}</td>
+    <td class="n">${x.mov!=null?fmt(x.mov,0)+"%":'<span class="faint">–</span>'}</td><td class="n">${pct(x.r1m,1)}</td>
+    <td class="n">${x.rsi!=null?`<span class="${x.rsi>75?"down":x.rsi<30?"faint":""}">${fmt(x.rsi,0)}</span>`:'<span class="faint">–</span>'}</td>
+    <td class="n">${fmt(x.beta,2)}</td><td class="n">${x.si!=null?fmt(x.si,1)+"%":'<span class="faint">–</span>'}</td><td class="n">${pct(x.up,0)}</td>
+    <td class="n">${x.sent!=null?`<span class="${x.sent>0.05?"up":x.sent<-0.05?"down":"faint"}">${x.sent>0.05?"Positivas":x.sent<-0.05?"Negativas":"Neutras"}</span>`:'<span class="faint">–</span>'}</td>
+    <td style="min-width:110px"><div style="display:flex;align-items:center;gap:6px"><div class="meter" style="flex:1"><span style="width:${w}%;background:var(--brand)"></span></div><b class="mono" style="font-size:12px">${fmt(x.score,1)}</b></div></td>
+    <td><button class="add ${enC.has(x.t)?"on":""}" data-add="${esc(x.t)}" type="button" aria-label="${enC.has(x.t)?"Quitar de":"Agregar a"} la cartera">${enC.has(x.t)?"✓":"+"}</button></td></tr>`}
 function renderBBG(){
   const el=$("#tab-bbg");if(!el)return;
-  const fs=Object.entries(BBG?.filas||{});$("#bbgCount").textContent=fs.length;
+  const fs=Object.keys(BBG?.filas||{});$("#bbgCount").textContent=fs.length;
   if(!D){el.innerHTML=emptyState();return}
   const enC=new Set(cart.items.map(i=>i.t));
-  fs.sort((a,b)=>(b[1].iv??b[1].hv??-1)-(a[1].iv??a[1].hv??-1));
-  const ventana=e=>e&&e>=D.ventana.ini&&e<=D.ventana.fin;
-  el.innerHTML=`<div class="card"><header><h2>Mi Bloomberg</h2><span class="muted" style="font-size:13px">${fs.length?`${fs.length} acciones · última carga ${new Date(BBG.fecha).toLocaleString("es-CL",{day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"})}`:"Todavía no cargas datos"}</span></header>
-    <p class="sub" style="margin:0">Tu lista privada de acciones sacadas del Terminal. Se guarda solo en este navegador: no se sube a GitHub ni la ve tu equipo. Cada carga se suma a lo que ya tienes.</p>
+  const subir=`<div class="card"><header><h2>Mi Bloomberg</h2><span class="muted" style="font-size:13px">${fs.length?`${fs.length.toLocaleString("es-CL")} acciones · cargadas ${new Date(BBG.fecha).toLocaleString("es-CL",{day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"})}`:"Todavía no cargas datos"}</span></header>
+    <p class="sub" style="margin:0">Sube el Excel del Terminal y la página arma sola el ranking y una cartera sugerida. Tus datos quedan <b>solo en este navegador</b>: no se suben a GitHub ni los ve tu equipo.</p>
     <div class="bbg-grid">
-      <div class="bbg-opt"><h3>Subir el Excel de EQS</h3><p class="sub">En EQS: <b>Actions → Export to Excel</b>. Guarda el archivo y súbelo aquí tal cual.</p>
+      <div class="bbg-opt"><h3>1 · Subir el Excel</h3><p class="sub">La plantilla con fórmulas (después de que carguen) o un export de EQS. Lee todas las hojas.</p>
         <input type="file" id="bbgFile" accept=".xlsx,.xls,.csv" class="sr"><button class="btn primary" id="bbgLoad" type="button">Subir Excel</button></div>
-      <div class="bbg-opt"><h3>O pegar desde Excel</h3><p class="sub">Selecciona las celdas en Excel (con la fila de títulos), copia con Cmd+C y pega aquí.</p>
+      <div class="bbg-opt"><h3>O pegar desde Excel</h3><p class="sub">Selecciona las celdas (con la fila de títulos), copia y pega aquí.</p>
         <textarea id="bbgPaste" rows="3" placeholder="Ticker	Name	Price	Volatility 30D…"></textarea><button class="btn" id="bbgPasteBtn" type="button">Agregar lo pegado</button></div>
-      <div class="bbg-opt"><h3>Completar con fórmulas</h3><p class="sub">Si tu lista no trae volatilidad implícita, beta o fecha de reporte, descarga esta plantilla con tus acciones, ábrela en el Terminal y vuelve a subirla.</p>
-        <button class="btn" id="bbgTpl" type="button">Descargar plantilla con mis acciones</button></div>
+      <div class="bbg-opt"><h3>Plantilla con fórmulas</h3><p class="sub">Descarga un Excel con tus acciones y las fórmulas BDP (volatilidad, momentum, RSI, resultados…). Ábrelo en el Terminal, guarda y vuelve a subirlo.</p>
+        <button class="btn" id="bbgTpl" type="button">Descargar plantilla</button></div>
     </div>
-    ${fs.length?'<div><button class="btn small" id="bbgClear" type="button">Borrar mi lista</button></div>':""}</div>
-  ${fs.length?`<div class="tablebox"><table><thead><tr><th>Acción</th><th class="n">Precio</th><th class="n">Día</th><th class="n">Vol. implícita</th><th class="n">Vol. histórica</th><th class="n">Beta</th><th>Reporte</th><th>En WLS</th><th>Datos para simular</th><th><span class="sr">Cartera</span></th></tr></thead><tbody>
-    ${fs.map(([t,f])=>{const a=byT[t]||{},yE=a.bbgOnly?null:(D.acciones.find(x=>x.t===t)||{}).earn,dif=yE&&f.earn&&yE!==f.earn;const listo=f.iv!=null||f.hv!=null||(!a.bbgOnly&&a.vol20!=null);
-      return`<tr><td>${tkBtn(t)}<span class="nm">${esc(f.nombre||a.nombre||"")}${a.bbgOnly?"":" · también en el radar"}</span></td><td class="n">${fmt(f.px,2)}</td><td class="n">${pct(f.chg)}</td>
-      <td class="n">${f.iv!=null?fmt(f.iv,0)+"%":'<span class="faint">–</span>'}</td><td class="n">${f.hv!=null?fmt(f.hv,0)+"%":'<span class="faint">–</span>'}</td><td class="n">${fmt(f.beta,2)}</td>
-      <td>${f.earn?`<span class="chip ${ventana(f.earn)?"good":""}">${fecha(f.earn)}</span>`:'<span class="faint">–</span>'}${dif?` <span class="chip warn" title="Yahoo decía ${fecha(yE)}">Yahoo: ${fecha(yE)}</span>`:""}</td>
-      <td>${f.wls===true?'<span class="chip good">Sí</span>':f.wls===false?'<span class="chip bad">No</span>':'<span class="faint">sin confirmar</span>'}</td>
-      <td>${listo?'<span class="chip good">Listo</span>':'<span class="chip warn">Falta volatilidad</span>'}</td>
-      <td>${f.wls===false?"":`<button class="add ${enC.has(t)?"on":""}" data-add="${t}" type="button" aria-label="${enC.has(t)?"Quitar de":"Agregar a"} la cartera">${enC.has(t)?"✓":"+"}</button>`}</td></tr>`}).join("")}</tbody></table></div>
-    <p class="sub" style="font-size:12px">Ordenadas por volatilidad. "Falta volatilidad": Monte Carlo usará un valor genérico de 40% hasta que cargues la volatilidad implícita o histórica. Las marcadas "No" en WLS no se pueden comprar en el desafío.</p>`
-  :`<div class="empty"><h2>Así se usa mañana en el Terminal</h2>
-    <ol class="sub" style="margin:0;padding-left:18px;display:flex;flex-direction:column;gap:6px;max-width:75ch">
-      <li>Escribe <code>EQS</code> y presiona <b>GO</b>.</li>
-      <li>En <b>34) Indices</b> busca y elige <b>WLS Index</b>: así solo aparecen acciones válidas para el desafío.</li>
-      <li>En <b>Add Criteria</b> escribe y agrega, por ejemplo: <i>Volatility 30 Day</i> mayor a 50, <i>Average Daily Value Traded</i> mayor a 20 millones, <i>Expected Report Date</i> entre el 12 de octubre y el 13 de noviembre.</li>
-      <li>Presiona <code>1 &lt;GO&gt;</code> para ver los resultados. Si puedes, agrega columnas como <i>Implied Volatility</i>, <i>Beta</i> y <i>Expected Report Date</i>.</li>
-      <li><b>Actions → Export to Excel</b>, guarda el archivo y súbelo aquí, o copia las celdas y pégalas.</li>
-    </ol></div>`}`;
+    ${fs.length?'<div><button class="btn small" id="bbgClear" type="button">Borrar mis datos de Bloomberg</button></div>':""}</div>`;
+  if(!fs.length){el.innerHTML=subir+`<div class="empty"><h2>Cómo se usa</h2><ol class="sub" style="margin:0;padding-left:18px;display:flex;flex-direction:column;gap:6px;max-width:75ch">
+      <li>En el Terminal abre la plantilla con fórmulas (o exporta tu EQS filtrado por <b>WLS Index</b>).</li>
+      <li>Espera que se llenen las celdas y guarda el archivo.</li>
+      <li>Súbelo aquí con <b>Subir Excel</b>: aparecerá el ranking, el gráfico y una cartera de 5 sugerida.</li></ol></div>`;bindBBG();return}
+  const R=rankingBBG(),n=R.u.length,falta=PESOS_RK.filter(([k])=>k!=="sent"&&!R.cob[k]).map(([,,d])=>d);
+  const seg=(k,ops)=>`<div class="seg" role="group">${ops.map(([v,l])=>`<button type="button" data-rk="${k}" data-v="${v}" aria-selected="${String(rkF[k])===String(v)}">${l}</button>`).join("")}</div>`;
+  const sumTop=R.top.length;
+  el.innerHTML=subir+`
+  <div class="stats" id="rk-top">
+    <div class="stat"><span class="label">Acciones cargadas</span><b>${R.total.toLocaleString("es-CL")}</b><span class="muted">${R.nUS} de EE.UU.</span></div>
+    <div class="stat"><span class="label">Pasan los filtros</span><b>${n.toLocaleString("es-CL")}</b><span class="muted">de ${R.base.toLocaleString("es-CL")} en ${rkF.reg==="US"?"EE.UU.":"todo el WLS"}</span></div>
+    <div class="stat ${R.cob.mov?"":"warnS"}"><span class="label">Con volatilidad</span><b>${R.cob.mov.toLocaleString("es-CL")}</b><span class="muted">${R.cob.mov?"histórica o implícita":"se usa la beta en su lugar"}</span></div>
+    <div class="stat ${R.cob.r1m?"":"warnS"}"><span class="label">Con momentum 1 mes</span><b>${R.cob.r1m.toLocaleString("es-CL")}</b><span class="muted">${R.cob.r1m?"cambio % del último mes":"falta CHG_PCT_1M"}</span></div>
+  </div>
+  <div class="card" style="flex-direction:row;flex-wrap:wrap;align-items:center;gap:10px 18px">
+    <span class="label">Mostrar</span>${seg("reg",[["US","Solo EE.UU."],["ALL","Todo el WLS"]])}
+    ${seg("win",[["true","Reportan en el torneo"],["false","Todas"]])}
+    ${seg("liq",[["true","Líquidas (> US$20M/día)"],["false","Sin filtro de liquidez"]])}
+  </div>
+  ${falta.length?`<div class="card" style="flex-direction:row;gap:10px;align-items:flex-start;border-color:var(--warn)"><span class="chip warn">Faltan datos</span><span class="sub" style="max-width:none">Tu archivo no trae: <b>${falta.join(", ")}</b>. El puntaje funciona igual con lo que hay, pero es mejor con la plantilla con fórmulas.</span></div>`:""}
+  ${sumTop?`<div class="card"><header><h2>Cartera sugerida</h2><span class="meta">Las 5 con mejor puntaje, máximo 1 por industria</span></header>
+    <div class="stats">${R.top.map((x,i)=>`<div class="stat" style="gap:6px"><span class="label">#${i+1} · ${esc(x.f.ind||"")}</span>
+      <b style="display:flex;align-items:center;gap:8px">${tkBtn(x.t)}<span class="mono" style="font-size:13px;color:var(--muted);font-weight:600">${fmt(x.score,1)} pts</span></b>
+      <span class="muted" style="font-size:12px">${esc(x.f.nombre||"")}</span>
+      <span style="font-size:12px;display:flex;gap:6px;flex-wrap:wrap">${x.f.earn?`<span class="chip ${x.win?"good":""}">Reporta ${fecha(x.f.earn)}</span>`:""}${x.mov!=null?`<span class="chip">Vol ${fmt(x.mov,0)}%</span>`:x.beta!=null?`<span class="chip">Beta ${fmt(x.beta,1)}</span>`:""}${x.r1m!=null?`<span class="chip ${x.r1m>=0?"good":"bad"}">1M ${sgn(x.r1m,0)}</span>`:""}</span></div>`).join("")}</div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center"><button class="btn primary" id="rkUsar" type="button">Usar estas 5 como mi cartera y simular</button><span class="faint" style="font-size:12px">Pone US$200.000 en cada una y te lleva a Cartera → Monte Carlo.</span></div></div>`:""}
+  ${scatterRK(R)}
+  <div class="card" style="padding:0;gap:0"><header style="padding:14px 16px"><h3>Ranking para el torneo</h3><span class="meta">${n?`Top ${Math.min(rkF.n,n)} de ${n.toLocaleString("es-CL")}`:"Ninguna acción pasa los filtros"}</span></header>
+  <div class="tablebox" style="border:0;border-top:1px solid var(--line);border-radius:0 0 12px 12px"><table><thead><tr><th class="n">#</th><th>Acción</th><th>Industria</th><th>Resultados</th><th class="n">Volatilidad</th><th class="n">1 mes</th><th class="n">RSI</th><th class="n">Beta</th><th class="n">Short</th><th class="n">Upside</th><th class="n">Noticias</th><th>Puntaje</th><th><span class="sr">Cartera</span></th></tr></thead>
+  <tbody>${R.u.slice(0,rkF.n).map((x,i)=>filaRK(x,i,enC)).join("")}</tbody></table></div>
+  ${n>rkF.n?`<div style="padding:12px 16px"><button class="btn small" id="rkMas" type="button">Ver ${Math.min(50,n-rkF.n)} más</button></div>`:""}</div>
+  <details class="how"><summary>¿Cómo se calcula el puntaje?</summary><div class="sub" style="max-width:80ch;display:flex;flex-direction:column;gap:6px;margin-top:8px">
+    <span>Cada dato se compara contra el resto de las acciones del filtro (puntaje z: 0 = promedio, +1 = bastante sobre el promedio). Luego se suman con estos pesos:</span>
+    <ul style="margin:0;padding-left:18px">${PESOS_RK.map(([k,w,d])=>`<li><b>${Math.round(w*100)}%</b> ${d}${R.cob[k]?"":` <span class="chip warn">sin dato</span>`}</li>`).join("")}
+      <li><b>+1 punto</b> si reporta resultados dentro del torneo (12 oct – 13 nov).</li><li><b>−0,5</b> si el RSI pasa de 80 (muy sobrecomprada).</li></ul>
+    <span>Volatilidad = implícita si la hay; si no, histórica 30 días; si no, 90 días; si no hay ninguna, se usa la beta. Gana el torneo quien más se separa del índice, por eso premia a las que más se mueven. No es una recomendación de inversión: confirma noticias (<code>CN</code>) y fecha (<code>ERN</code>) antes de comprar.</span></div></details>`;
+  bindBBG(R);
+}
+function bindBBG(R){
+  const el=$("#tab-bbg");
   const b=$("#bbgLoad"),fi=$("#bbgFile");if(b)b.onclick=()=>fi.click();
   if(fi)fi.onchange=e=>{const x=e.target.files[0];if(x)cargarBBG(x);e.target.value=""};
   const pb=$("#bbgPasteBtn");if(pb)pb.onclick=()=>pegarBBG($("#bbgPaste").value);
   const tp=$("#bbgTpl");if(tp)tp.onclick=plantillaMias;
-  const c=$("#bbgClear");if(c)c.onclick=()=>{BBG=null;try{localStorage.removeItem("gtc-bbg")}catch(e){};Object.keys(byT).forEach(k=>{if(byT[k].bbgOnly)delete byT[k];else delete byT[k].bbg});renderAll(false);toast("Mi lista de Bloomberg quedó vacía")};
+  const c=$("#bbgClear");if(c)c.onclick=()=>{if(!confirm("¿Borrar todos tus datos de Bloomberg de este navegador?"))return;BBG=null;try{localStorage.removeItem("gtc-bbg")}catch(e){};Object.keys(byT).forEach(k=>{if(byT[k].bbgOnly)delete byT[k];else delete byT[k].bbg});renderAll(false);toast("Tus datos de Bloomberg quedaron borrados")};
+  el.querySelectorAll("[data-rk]").forEach(x=>x.onclick=()=>{const k=x.dataset.rk,v=x.dataset.v;rkF[k]=v==="true"?true:v==="false"?false:v;rkF.n=30;store("gtc-rk",rkF);renderBBG()});
+  const m=$("#rkMas");if(m)m.onclick=()=>{rkF.n+=50;renderBBG()};
+  const us=$("#rkUsar");if(us&&R)us.onclick=()=>{
+    if(cart.items.length&&!confirm("Esto reemplaza tu cartera actual por las 5 sugeridas. ¿Seguir?"))return;
+    cart.items=R.top.map(x=>({t:x.t,usd:MAXPOS,wls:x.f.wls===false?false:true}));store("gtc-cart",cart);renderAll(false);setTab("cartera");toast("Cartera lista: baja a Monte Carlo y presiona Simular")};
 }
 
 /* ---------- MONTE CARLO ---------- */
@@ -1287,7 +1412,7 @@ function ctxMC(ts){
   const acwi=(D.mercado||[]).find(m=>m.t==="ACWI");let sm=0.009;
   if(acwi&&acwi.hist){const r=[];for(let i=1;i<acwi.hist.length;i++)if(acwi.hist[i]&&acwi.hist[i-1])r.push(acwi.hist[i]/acwi.hist[i-1]-1);const mu=r.reduce((a,b)=>a+b,0)/r.length;sm=Math.sqrt(r.reduce((a,b)=>a+(b-mu)**2,0)/(r.length-1))||sm}
   const B=t=>(BBG&&BBG.filas[t])||{};
-  const sig=ts.map(t=>Math.max(0.005,(B(t).iv||B(t).hv||byT[t].vol20||40)/100/Math.sqrt(252)));
+  const sig=ts.map(t=>Math.max(0.005,(B(t).iv||B(t).hv||B(t).hv90||byT[t].vol20||(B(t).beta?B(t).beta*25:40))/100/Math.sqrt(252)));
   const movL={};(D.contagio||[]).forEach(l=>movL[l.t]=l.movL);
   // la volatilidad implicita ya incluye el reporte esperado: no se suma un salto extra
   const salto=ts.map((t,i)=>B(t).iv?0:movL[t]?Math.max(1.25*movL[t]/100,2*sig[i]):3*sig[i]);
