@@ -63,6 +63,7 @@ MAX_NUEVAS = 20
 NUEVAS = "Nuevas del día"
 
 # ---- Lista dinamica ----
+TOTAL_CON_WLS = 110          # con wls.txt: cuantas acciones de tu lista de Bloomberg se analizan
 TOTAL_ACCIONES = 70          # cuantas acciones sigue el radar cada dia (sin contar equipo.txt)
 NUCLEO = [                   # 25 fijas: siempre se siguen, para tener continuidad
     "IONQ", "RGTI", "OKLO", "LEU", "CCJ", "RKLB", "ASTS", "NBIS", "CRWV", "IREN",
@@ -604,7 +605,10 @@ def construir(es_demo=False):
     equipo = leer_equipo()
     wls = leer_wls()
     motivos, origen = {}, {}
-    if es_demo:
+    if wls and not es_demo:
+        cands = {}   # con wls.txt el radar sigue SOLO tus acciones de Bloomberg (+ fijas + equipo)
+        print("wls.txt encontrado: se omiten las listas de Yahoo")
+    elif es_demo:
         cands = {f"NUEV{k}": DESCUBRIR[list(DESCUBRIR)[k % len(DESCUBRIR)]] for k in range(1, 9)}
     else:
         try:
@@ -623,7 +627,12 @@ def construir(es_demo=False):
     for t, mtv in equipo.items():
         temas[t] = EQUIPO if t not in temas or temas[t] == NUEVAS else temas[t]
         motivos[t] = mtv
-    pool = list(temas)
+    if wls:
+        pool = [t for t in temas if t in wls or t in NUCLEO or t in equipo]
+        total = max(TOTAL_ACCIONES, TOTAL_CON_WLS)
+    else:
+        pool = list(temas)
+        total = TOTAL_ACCIONES
     todos = pool + [d for d in list(DRIVERS) + list(LIDERES_EXTRA) + [TASA] if d not in pool]
 
     print(f"Descargando precios de {len(pool)} candidatas...")
@@ -640,9 +649,9 @@ def construir(es_demo=False):
         close, volu = ohlc["Close"], ohlc["Volume"]
 
     forzadas = list(dict.fromkeys([t for t in NUCLEO if t in temas] + list(equipo)))
-    tickers = preseleccion(close, volu, pool, forzadas, TOTAL_ACCIONES, frozenset(wls))
+    tickers = preseleccion(close, volu, pool, forzadas, total, frozenset(wls))
     for t in tickers:
-        origen[t] = "equipo" if t in equipo else "nucleo" if t in NUCLEO else "base" if t in sum(SEMILLA.values(), []) else "nueva"
+        origen[t] = "equipo" if t in equipo else "nucleo" if t in NUCLEO else "wls" if t in wls else "base" if t in sum(SEMILLA.values(), []) else "nueva"
     print(f"Lista del dia: {len(tickers)} acciones ({sum(1 for t in tickers if origen[t]=='nueva')} nuevas)")
 
     if es_demo:
@@ -803,6 +812,8 @@ def construir(es_demo=False):
         "nNuevas": sum(1 for t in tickers if origen.get(t) == "nueva"),
         "nEquipo": sum(1 for t in tickers if origen.get(t) == "equipo"),
         "nDinamicas": sum(1 for t in tickers if origen.get(t) in ("base", "nueva")),
+        "nWLS": sum(1 for t in tickers if origen.get(t) == "wls"),
+        "nListaWLS": len(wls),
         "kronos": bool(kronos),
         "contagio": mapa,
         "macro": EVENTOS_MACRO,
