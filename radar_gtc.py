@@ -600,10 +600,11 @@ def preseleccion(close, volu, pool, forzadas, total, preferidas=frozenset()):
     return elegidas
 
 
-def construir(es_demo=False):
+def construir(es_demo=False, modo_wls=False):
     temas = {t: tema for tema, ts in SEMILLA.items() for t in ts}
     equipo = leer_equipo()
-    wls = leer_wls()
+    lista_wls = leer_wls()                     # para marcar cuales estan en tu lista
+    wls = lista_wls if modo_wls else set()     # solo en la pagina "Mi lista" manda la seleccion
     motivos, origen = {}, {}
     if wls and not es_demo:
         cands = {}   # con wls.txt el radar sigue SOLO tus acciones de Bloomberg (+ fijas + equipo)
@@ -773,7 +774,7 @@ def construir(es_demo=False):
             "noticias": inf.get("noticias") or [],
             "motivo": motivos.get(t) if origen.get(t) in ("nueva", "equipo") else None,
             "origen": origen.get(t, "base"),
-            "enWLS": (t in wls) if wls else None,
+            "enWLS": (t in lista_wls) if lista_wls else None,
             "kronos": kronos.get(t),
         }
         a["senales"] = senales(a)
@@ -828,7 +829,11 @@ def construir(es_demo=False):
 
 def main():
     es_demo = "--demo" in sys.argv
-    datos = construir(es_demo)
+    modo_wls = "--wls" in sys.argv
+    if modo_wls and not leer_wls():
+        raise SystemExit("--wls: no hay wls.txt con acciones; se omite la pagina Mi lista")
+    datos = construir(es_demo, modo_wls)
+    datos["modo"] = "wls" if modo_wls else "general"
     rutas = [a for a in sys.argv[1:] if a.endswith(".json")]
     out = rutas[0] if rutas else "radar_gtc.json"
     texto = json.dumps(datos, ensure_ascii=False, separators=(",", ":"), default=str)
