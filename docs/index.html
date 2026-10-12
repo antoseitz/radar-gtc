@@ -494,6 +494,8 @@ details.more .more-in{display:flex;flex-direction:column;gap:18px;margin-top:18p
   --hm-pos:61,214,140; --hm-neg:255,107,94}}
 .band{border-top:4px solid var(--brand)}
 .band h1{color:var(--brand)}
+.bchip{font-size:10.5px;padding:0 6px;font-weight:600}
+td .bchip{margin-top:3px}
 .vistas{display:inline-flex;gap:2px;background:var(--sunk);border-radius:10px;padding:3px;margin:6px 0 2px;width:max-content}
 .vista{padding:5px 12px;border-radius:8px;font-size:13px;font-weight:600;color:var(--muted);text-decoration:none}
 .vista[aria-current="page"]{background:var(--surface);color:var(--brand);box-shadow:0 1px 2px rgba(0,0,0,.08)}
@@ -599,6 +601,66 @@ const MODO_WLS=/wls\.html$/i.test(location.pathname)||new URLSearchParams(locati
 const DATA_FILE=MODO_WLS?"radar_wls.json":"radar_gtc.json";
 document.getElementById(MODO_WLS?"v-wls":"v-gen")?.setAttribute("aria-current","page");
 if(MODO_WLS)document.title="Radar GTC · Mi lista Bloomberg";
+/* ---------- BOLSAS: a que bolsa pertenece cada accion y si esta abierta (en hora de Chile) ---------- */
+// ses = tramos de negociacion en hora local de cada bolsa (horas decimales). No considera feriados.
+const BOLSAS={
+  US:{n:"EE.UU.",tz:"America/New_York",ses:[[9.5,16]],pre:[4,9.5],post:[16,20]},
+  CN:{n:"Toronto",tz:"America/Toronto",ses:[[9.5,16]]},CT:{n:"Toronto",tz:"America/Toronto",ses:[[9.5,16]]},
+  BZ:{n:"Brasil (B3)",tz:"America/Sao_Paulo",ses:[[10,17]]},MM:{n:"México",tz:"America/Mexico_City",ses:[[8.5,15]]},
+  CI:{n:"Chile",tz:"America/Santiago",ses:[[9.5,16]]},CB:{n:"Colombia",tz:"America/Bogota",ses:[[9.5,15.92]]},
+  LN:{n:"Londres",tz:"Europe/London",ses:[[8,16.5]]},GR:{n:"Alemania",tz:"Europe/Berlin",ses:[[9,17.5]]},GY:{n:"Alemania",tz:"Europe/Berlin",ses:[[9,17.5]]},
+  FP:{n:"París",tz:"Europe/Paris",ses:[[9,17.5]]},NA:{n:"Ámsterdam",tz:"Europe/Amsterdam",ses:[[9,17.5]]},SM:{n:"Madrid",tz:"Europe/Madrid",ses:[[9,17.5]]},
+  IM:{n:"Milán",tz:"Europe/Rome",ses:[[9,17.5]]},SW:{n:"Suiza",tz:"Europe/Zurich",ses:[[9,17.5]]},SE:{n:"Suiza",tz:"Europe/Zurich",ses:[[9,17.5]]},
+  SS:{n:"Estocolmo",tz:"Europe/Stockholm",ses:[[9,17.5]]},DC:{n:"Copenhague",tz:"Europe/Copenhagen",ses:[[9,17]]},NO:{n:"Oslo",tz:"Europe/Oslo",ses:[[9,16.33]]},
+  FH:{n:"Helsinki",tz:"Europe/Helsinki",ses:[[10,18.5]]},HB:{n:"Budapest",tz:"Europe/Budapest",ses:[[9,17]]},PW:{n:"Varsovia",tz:"Europe/Warsaw",ses:[[9,17]]},
+  TI:{n:"Estambul",tz:"Europe/Istanbul",ses:[[10,18]]},SJ:{n:"Johannesburgo",tz:"Africa/Johannesburg",ses:[[9,17]]},IT:{n:"Tel Aviv",tz:"Asia/Jerusalem",ses:[[9.98,17.42]]},
+  AB:{n:"Arabia Saudita",tz:"Asia/Riyadh",ses:[[10,15]],dias:[0,1,2,3,4]},KK:{n:"Kuwait",tz:"Asia/Kuwait",ses:[[9,12.67]],dias:[0,1,2,3,4]},
+  QD:{n:"Qatar",tz:"Asia/Qatar",ses:[[9.5,13.25]],dias:[0,1,2,3,4]},UH:{n:"Abu Dabi",tz:"Asia/Dubai",ses:[[10,15]]},DU:{n:"Dubái",tz:"Asia/Dubai",ses:[[10,15]]},
+  IN:{n:"India",tz:"Asia/Kolkata",ses:[[9.25,15.5]]},IB:{n:"India",tz:"Asia/Kolkata",ses:[[9.25,15.5]]},
+  JP:{n:"Tokio",tz:"Asia/Tokyo",ses:[[9,11.5],[12.5,15.5]]},JT:{n:"Tokio",tz:"Asia/Tokyo",ses:[[9,11.5],[12.5,15.5]]},
+  KS:{n:"Corea",tz:"Asia/Seoul",ses:[[9,15.5]]},KQ:{n:"Corea",tz:"Asia/Seoul",ses:[[9,15.5]]},
+  TT:{n:"Taiwán",tz:"Asia/Taipei",ses:[[9,13.5]]},HK:{n:"Hong Kong",tz:"Asia/Hong_Kong",ses:[[9.5,12],[13,16]]},
+  C1:{n:"China (Shanghái)",tz:"Asia/Shanghai",ses:[[9.5,11.5],[13,15]]},C2:{n:"China (Shenzhen)",tz:"Asia/Shanghai",ses:[[9.5,11.5],[13,15]]},
+  CH:{n:"China",tz:"Asia/Shanghai",ses:[[9.5,11.5],[13,15]]},SP:{n:"Singapur",tz:"Asia/Singapore",ses:[[9,12],[13,17]]},
+  IJ:{n:"Indonesia",tz:"Asia/Jakarta",ses:[[9,12],[13.5,15.83]]},TB:{n:"Tailandia",tz:"Asia/Bangkok",ses:[[10,12.5],[14.5,16.5]]},
+  MK:{n:"Malasia",tz:"Asia/Kuala_Lumpur",ses:[[9,12.5],[14.5,17]]},PM:{n:"Filipinas",tz:"Asia/Manila",ses:[[9.5,12],[13,14.75]]},
+  VN:{n:"Vietnam",tz:"Asia/Ho_Chi_Minh",ses:[[9,11.5],[13,14.75]]},AU:{n:"Australia",tz:"Australia/Sydney",ses:[[10,16]]},NZ:{n:"Nueva Zelanda",tz:"Pacific/Auckland",ses:[[10,16.75]]}
+};
+const BOLSA_YAHOO={NMS:"Nasdaq",NGM:"Nasdaq",NCM:"Nasdaq",NAS:"Nasdaq",NYQ:"NYSE",NYS:"NYSE",ASE:"NYSE American",PCX:"NYSE Arca",BTS:"Cboe",OQB:"OTC",PNK:"OTC"};
+const DIAS_ES=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+function partesTZ(tz,d){const o={};new Intl.DateTimeFormat("en-US",{timeZone:tz,hourCycle:"h23",weekday:"short",year:"numeric",month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit"}).formatToParts(d).forEach(p=>o[p.type]=p.value);
+  return{dow:DIAS_ES.indexOf(o.weekday),h:+o.hour+(+o.minute)/60,y:+o.year,m:+o.month,d:+o.day,hh:+o.hour,mm:+o.minute}}
+function offsetTZ(tz,d){const p=partesTZ(tz,d);return Math.round((Date.UTC(p.y,p.m-1,p.d,p.hh,p.mm)-Math.floor(d.getTime()/6e4)*6e4)/6e4)}
+// hora local de la bolsa -> texto en hora de Chile (America/Santiago)
+function horaChile(code,h,d=new Date()){const b=BOLSAS[code];const dif=(offsetTZ("America/Santiago",d)-offsetTZ(b.tz,d))/60;let x=((h+dif)%24+24)%24;const H=Math.floor(x+1e-6),M=Math.round((x-H)*60);return`${String(H+(M===60?1:0)).padStart(2,"0")}:${String(M%60).padStart(2,"0")}`}
+function horarioChile(code){const b=BOLSAS[code];if(!b)return"";const s=b.ses;return`${horaChile(code,s[0][0])}–${horaChile(code,s[s.length-1][1])}`}
+function codigoBolsa(t,a){if(t&&t.includes(" "))return t.split(" ")[1];const p=(a&&a.bbg&&a.bbg.pais)||null;if(p&&p!=="US"&&BOLSAS[p])return p;return"US"}
+function nombreBolsa(t,a){const c=codigoBolsa(t,a);if(c==="US"){const y=a&&a.bolsa;return BOLSA_YAHOO[y]||"EE.UU."}return(BOLSAS[c]||{}).n||c}
+// proxima apertura como instante real, escrita en hora de Chile ("hoy 22:00", "mañana 10:30", "lun 10:30")
+function proximaApertura(code,now=new Date()){const b=BOLSAS[code],dias=b.dias||[1,2,3,4,5],p=partesTZ(b.tz,now),a0=b.ses[0][0];
+  for(let k=0;k<9;k++){const base=new Date(Date.UTC(p.y,p.m-1,p.d+k,12));const dow=base.getUTCDay();if(!dias.includes(dow))continue;
+    const H=Math.floor(a0),M=Math.round((a0-H)*60);let inst=Date.UTC(p.y,p.m-1,p.d+k,H,M)-offsetTZ(b.tz,base)*6e4;
+    if(inst<=now.getTime())continue;
+    const fC=x=>partesTZ("America/Santiago",x),hoy=fC(now),en=fC(new Date(inst));
+    const dd=Math.round((Date.UTC(en.y,en.m-1,en.d)-Date.UTC(hoy.y,hoy.m-1,hoy.d))/864e5);
+    const hh=`${String(en.hh).padStart(2,"0")}:${String(en.mm).padStart(2,"0")}`;
+    const dia=dd===0?"hoy":dd===1?"mañana":["dom","lun","mar","mié","jue","vie","sáb"][en.dow];
+    return{txt:`${dia} ${hh}`,horas:(inst-now.getTime())/36e5}}
+  return{txt:"–",horas:null}}
+function estadoBolsa(code,now=new Date()){const b=BOLSAS[code];if(!b)return{fase:"?",txt:"Horario desconocido"};
+  const p=partesTZ(b.tz,now),dias=b.dias||[1,2,3,4,5],hab=dias.includes(p.dow),h=p.h;
+  const fmtDur=x=>{const m=Math.max(1,Math.round(x*60));return m>=60?`${Math.floor(m/60)} h ${m%60} min`:`${m} min`};
+  if(hab){for(const[i,[a,z]]of b.ses.entries()){if(h>=a&&h<z)return{fase:"abierta",txt:i<b.ses.length-1?`Abierta · pausa a las ${horaChile(code,z)} (en ${fmtDur(z-h)}) · cierra ${horaChile(code,b.ses[b.ses.length-1][1])}`:`Abierta · cierra ${horaChile(code,z)} (en ${fmtDur(z-h)})`}}
+    if(b.ses.length>1&&h>=b.ses[0][1]&&h<b.ses[b.ses.length-1][0]){const sig=b.ses.find(([a])=>a>h);return{fase:"pausa",txt:`Pausa de almuerzo · vuelve ${horaChile(code,sig[0])}`}}
+    if(b.pre&&h>=b.pre[0]&&h<b.pre[1]){const pa=proximaApertura(code,now);return{fase:"pre",txt:`Pre-apertura · abre ${pa.txt} (en ${fmtDur(pa.horas)})`}}}
+  const pa=proximaApertura(code,now);
+  if(hab&&b.post&&h>=b.post[0]&&h<b.post[1])return{fase:"post",txt:`Cerrada · after-hours hasta ${horaChile(code,b.post[1])} · abre ${pa.txt}`};
+  return{fase:"cerrada",txt:`Cerrada · abre ${pa.txt}${pa.horas!=null&&pa.horas<12?` (en ${fmtDur(pa.horas)})`:""}`}}
+function bolsaChip(t,a,corto){const c=codigoBolsa(t,a),e=estadoBolsa(c),n=nombreBolsa(t,a);
+  const cls=e.fase==="abierta"?"good":e.fase==="pre"||e.fase==="pausa"?"warn":"";
+  const dot=e.fase==="abierta"?"●":e.fase==="pre"||e.fase==="pausa"?"◐":"○";
+  return`<span class="chip ${cls} bchip" data-bt="${esc(t)}" data-c="${corto?1:0}" title="${esc(n)} · ${esc(e.txt)} (hora Chile). Horario: ${esc(horarioChile(c))} hora Chile. No considera feriados.">${dot} ${esc(n)}${corto?"":` · ${e.fase==="abierta"?"abierta":e.fase==="pre"?"pre-apertura":e.fase==="pausa"?"almuerzo":"cerrada"}`}</span>`}
+
 let D=null, byT={}, cart={items:[],nota:""}, sortKey="rank", sortDir=1;
 let filtro={tema:"",mom:"",ventana:false,liquida:true,q:""};
 function toast(m){const t=$("#toast");t.textContent=m;t.hidden=false;clearTimeout(toast.h);toast.h=setTimeout(()=>t.hidden=true,2400)}
@@ -656,7 +718,8 @@ function renderStatus(){
   const g=new Date(D.generado),hrs=(Date.now()-g)/36e5;
   const cuando=g.toLocaleString("es-CL",{weekday:"short",day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"});
   const p=D.demo?`<span class="pill bad">Datos de ejemplo</span>`:hrs>30?`<span class="pill warn">Desactualizado</span>`:`<span class="pill ok">● Al día</span>`;
-  st.innerHTML=`${p}<span class="pill">${esc(D.fuente)} · ${cuando}</span><span class="pill">${D.acciones.length} acciones</span>`;
+  const eu=estadoBolsa("US");
+  st.innerHTML=`${p}<span class="pill">${esc(D.fuente)} · ${cuando}</span><span class="pill">${D.acciones.length} acciones</span><span class="pill ${eu.fase==="abierta"?"ok":eu.fase==="pre"?"warn":""}" title="Bolsa de EE.UU. (NYSE y Nasdaq), en hora de Chile. Horario normal ${horarioChile("US")}. No considera feriados.">${eu.fase==="abierta"?"●":"○"} Bolsa EE.UU.: ${esc(eu.txt)}</span>`;
   $("#banner").innerHTML=D.demo?`<div class="banner"><b>Estos números son de ejemplo.</b> Presiona Actualizar ahora y luego Run workflow para traer datos reales de Yahoo Finance.</div>`:"";
 }
 
@@ -1001,7 +1064,7 @@ function renderAcciones(){
     <thead><tr>${COLS.map(([k,l,n])=>`<th class="sort ${n?"n":""}" data-k="${k}">${l}${sortKey===k?(sortDir>0?" ↑":" ↓"):""}</th>`).join("")}<th>Señales</th><th>60 días</th><th><span class="sr">Cartera</span></th></tr></thead>
     <tbody>${F.map(a=>`<tr class="click" data-open="${a.t}">
       <td class="n faint">${a.rank}</td>
-      <td><span class="tk">${esc(a.t)}</span>${a.origen==="nueva"?' <span class="chip good" style="font-size:10.5px;padding:0 6px">Nueva</span>':a.origen==="equipo"?' <span class="chip info" style="font-size:10.5px;padding:0 6px">Equipo</span>':a.origen==="nucleo"?' <span class="chip" style="font-size:10.5px;padding:0 6px" title="Siempre se sigue">Fija</span>':a.origen==="wls"?' <span class="chip info" style="font-size:10.5px;padding:0 6px" title="Está en tu lista WLS de Bloomberg">WLS</span>':""}<span class="nm">${esc(a.nombre)}</span></td>
+      <td><span class="tk">${esc(a.t)}</span>${a.origen==="nueva"?' <span class="chip good" style="font-size:10.5px;padding:0 6px">Nueva</span>':a.origen==="equipo"?' <span class="chip info" style="font-size:10.5px;padding:0 6px">Equipo</span>':a.origen==="nucleo"?' <span class="chip" style="font-size:10.5px;padding:0 6px" title="Siempre se sigue">Fija</span>':a.origen==="wls"?' <span class="chip info" style="font-size:10.5px;padding:0 6px" title="Está en tu lista WLS de Bloomberg">WLS</span>':""}<span class="nm">${esc(a.nombre)}</span>${bolsaChip(a.t,a)}</td>
       <td>${esc(a.tema)}<span class="nm">${esc(a.industria||"")}</span></td>
       <td class="n">${fmt(a.precio,2)}</td><td class="n">${pct(a.r1d)}</td><td class="n">${pct(a.r1s)}</td><td class="n">${pct(a.r1m)}</td><td class="n">${pct(a.r3m)}</td>
       <td>${momChip(a.momentum)}</td>
@@ -1037,7 +1100,8 @@ function openFicha(t){
     <div class="dhead"><div style="display:flex;flex-direction:column;gap:4px;min-width:0">
       <span class="label">#${a.rank} · ${esc(a.tema)}</span>
       <h2 style="display:flex;align-items:center;gap:10px">${av(a)}<span>${esc(nombreCorto(a.nombre,a.t))} <span class="muted" style="font-weight:500">${esc(a.t)}</span></span></h2>
-      <span class="muted" style="font-size:13px">${[a.sector,a.industria,a.pais].filter(Boolean).map(esc).join(" · ")}</span></div>
+      <span class="muted" style="font-size:13px">${[a.sector,a.industria,a.pais].filter(Boolean).map(esc).join(" · ")}</span>
+      <span style="font-size:12.5px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">${bolsaChip(a.t,a)}<span class="muted">${esc(estadoBolsa(codigoBolsa(a.t,a)).txt)} · horario ${horarioChile(codigoBolsa(a.t,a))} hora Chile</span></span></div>
       <button class="close" data-close type="button" aria-label="Cerrar">×</button></div>
     ${a.desc?`<p class="sub" style="margin:0">${esc(a.desc)}</p>`:""}
     <div style="display:flex;gap:8px;flex-wrap:wrap">
@@ -1155,7 +1219,7 @@ function renderCartera(){
     <div class="stat"><span class="label">Correlación promedio</span><b>${fmt(s.corr,2)}</b><span class="muted">${tipo} · ${s.grupos} grupo${s.grupos===1?"":"s"}</span></div>
     <div class="stat"><span class="label">Reportan en el desafío</span><b>${s.enV} de ${s.it.length}</b></div></div>
   <div class="two"><div class="tablebox"><table><thead><tr><th>Acción</th><th>Grupo</th><th class="n">Monto US$</th><th class="n">%</th><th>Momentum</th><th>Resultados</th><th>En WLS</th><th></th></tr></thead>
-    <tbody>${s.it.map(i=>{const a=byT[i.t],v=+i.usd||0;return`<tr><td>${tkBtn(a.t)}<span class="nm">${esc(a.nombre)}</span></td><td>G${a.grupo}</td>
+    <tbody>${s.it.map(i=>{const a=byT[i.t],v=+i.usd||0;return`<tr><td>${tkBtn(a.t)}<span class="nm">${esc(a.nombre)}</span>${bolsaChip(a.t,a)}</td><td>G${a.grupo}</td>
       <td class="n"><input class="usd ${v>MAXPOS?"over":""}" id="usd-${a.t}" data-usd="${a.t}" inputmode="numeric" value="${v}" aria-label="Monto ${a.t}"></td><td class="n">${fmt(100*v/CAPITAL,1)}%</td>
       <td>${momChip(a.momentum)}</td><td>${a.earn?`<span class="chip ${a.enVentana?"good":""}">${fecha(a.earn)}</span>`:"–"}</td>
       <td><input type="checkbox" id="wls-${a.t}" data-wls="${a.t}" ${i.wls?"checked":""} aria-label="${a.t} confirmada en WLS"></td>
@@ -1341,7 +1405,7 @@ function scatterRK(R){
   <div style="display:flex;gap:14px;flex-wrap:wrap;font-size:12px" class="muted"><span><i style="display:inline-block;width:10px;height:10px;border-radius:50%;background:var(--brand);vertical-align:-1px"></i> Cartera sugerida</span><span><i style="display:inline-block;width:10px;height:10px;border-radius:50%;background:var(--up);opacity:.6;vertical-align:-1px"></i> Reporta durante el torneo</span><span><i style="display:inline-block;width:10px;height:10px;border-radius:50%;background:var(--faint);opacity:.6;vertical-align:-1px"></i> No reporta en el torneo</span></div></div>`;
 }
 function filaRK(x,i,enC){const f=x.f,mx=4;const w=Math.max(4,Math.min(100,(x.score+1.5)/mx*100));
-  return`<tr><td class="n faint">${i+1}</td><td>${tkBtn(x.t)}<span class="nm">${esc(f.nombre||"")}${x.us?"":` · ${esc(f.pais||x.t.split(" ")[1])}`}</span></td>
+  return`<tr><td class="n faint">${i+1}</td><td>${tkBtn(x.t)}<span class="nm">${esc(f.nombre||"")}</span>${bolsaChip(x.t,byT[x.t]||{bbg:f})}</td>
     <td><span class="nm" style="max-width:190px;font-size:12px;color:var(--fg)">${esc(f.ind||"–")}</span></td>
     <td>${f.earn?`<span class="chip ${x.win?"good":""}">${fecha(f.earn)}</span>`:'<span class="faint">–</span>'}</td>
     <td class="n">${x.mov!=null?fmt(x.mov,0)+"%":'<span class="faint">–</span>'}</td><td class="n">${pct(x.r1m,1)}</td>
@@ -1569,6 +1633,7 @@ function cargar(silencioso){
 cargar(false);
 setInterval(()=>{if(!document.hidden)cargar(true)},30*60*1000);
 setInterval(renderStatus,60*1000);
+setInterval(()=>document.querySelectorAll("[data-bt]").forEach(el=>{el.outerHTML=bolsaChip(el.dataset.bt,byT[el.dataset.bt],el.dataset.c==="1")}),60*1000);
 document.addEventListener("visibilitychange",()=>{if(!document.hidden&&Date.now()-ultimoChequeo>10*60*1000)cargar(true)});
 })();
 </script>
