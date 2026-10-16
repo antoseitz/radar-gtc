@@ -644,6 +644,15 @@ function horarioChile(code){const b=BOLSAS[code];if(!b)return"";const s=b.ses;re
 function codigoBolsa(t,a){const ex=a&&a.bbg&&a.bbg.exch;if(ex&&BOLSAS[ex])return ex;if(a&&a.bolsaBBG)return["UN","UW","UQ","UA","UP","UR","UV"].includes(a.bolsaBBG)?"US":a.bolsaBBG;if(t&&t.includes(" "))return t.split(" ")[1];const p=(a&&a.bbg&&a.bbg.pais)||null;if(p&&p!=="US"&&BOLSAS[p])return p;return"US"}
 function nombreBolsa(t,a){const c=codigoBolsa(t,a);if(c==="US"){const y=a&&a.bolsa;return BOLSA_YAHOO[y]||"EE.UU."}return(BOLSAS[c]||{}).n||c}
 // proxima apertura como instante real, escrita en hora de Chile ("hoy 22:00", "mañana 10:30", "lun 10:30")
+/* Timing: si conviene esperar la apertura (usa el gap esperado de la W). Vale solo hasta la primera apertura despues de cargar los datos. */
+function timingDe(gap,code,carga){
+  if(gap==null||!isFinite(gap)||!BOLSAS[code])return null;
+  const e=estadoBolsa(code);if(e.fase==="abierta")return{txt:"Abierta ahora",cls:"",tip:"La bolsa ya está abierta: el gap ya ocurrió."};
+  if(carga){const c=new Date(carga),pa=proximaApertura(code,c);if(pa.horas!=null&&c.getTime()+pa.horas*36e5<Date.now())return{txt:"Dato viejo",cls:"",tip:"Su bolsa ya abrió desde que cargaste la W. Sube la W de nuevo para recalcular."}}
+  return gap<=-2?{txt:"Esperar apertura",cls:"warn",tip:`Se espera que abra ${fmt(gap,1)}%: conviene esperar a que abra y comprar más barato.`}
+    :gap>=1?{txt:"Comprar antes",cls:"good",tip:`Se espera que abra +${fmt(gap,1)}%: conviene entrar antes de la apertura.`}
+    :{txt:"Normal",cls:"",tip:"Gap chico: da lo mismo comprar antes o después de que abra."}}
+const chipTiming=x=>x?`<span class="chip ${x.cls}" title="${esc(x.tip)}" style="white-space:nowrap">${esc(x.txt)}</span>`:'<span class="faint">–</span>';
 function proximaApertura(code,now=new Date()){const b=BOLSAS[code],dias=b.dias||[1,2,3,4,5],p=partesTZ(b.tz,now),a0=b.ses[0][0];
   for(let k=0;k<9;k++){const base=new Date(Date.UTC(p.y,p.m-1,p.d+k,12));const dow=base.getUTCDay();if(!dias.includes(dow))continue;
     const H=Math.floor(a0),M=Math.round((a0-H)*60);let inst=Date.UTC(p.y,p.m-1,p.d+k,H,M)-offsetTZ(b.tz,base)*6e4;
@@ -1388,7 +1397,7 @@ function rankingBBG(){
   u.forEach(x=>{const f=x.f;x.mov=f.iv??f.hv??f.hv90??null;x.r1m=f.r1m;x.si=f.si;x.beta=f.beta;x.sent=f.sent;x.rsi=f.rsi;
     x.win=!!f.earn&&f.earn>=ini&&f.earn<=fin;x.liq=f.tvUSD?f.tv:(f.advUSD??null);x.up=f.target&&f.px?(f.target/f.px-1)*100:null;
     x.code=codigoBolsa(x.t,{bbg:f});x.est=estadoBolsa(x.code);x.hrs=x.est.fase==="abierta"?0:(BOLSAS[x.code]?proximaApertura(x.code).horas:null);
-    x.gap=f.gapW??(f.proxyChg!=null&&f.beta!=null?f.beta*f.proxyChg:null)});
+    x.gap=f.gapW??(f.proxyChg!=null&&f.beta!=null?f.beta*f.proxyChg:null);x.timing=timingDe(x.gap,x.code,BBG?.fecha)});
   const base=u.length;
   const conZ=u.filter(x=>x.f.zm!=null).length,modoW=conZ>=Math.max(5,u.length*.5);
   if(modoW){const c=v=>v==null||!isFinite(v)?0:Math.max(-3,Math.min(3,v));
@@ -1443,7 +1452,7 @@ function scatterRK(R){
 function filaRK(x,i,enC){const f=x.f,mx=4;const w=Math.max(4,Math.min(100,(x.score+1.5)/mx*100));
   return`<tr><td class="n faint">${i+1}</td><td>${tkBtn(x.t)}<span class="nm">${esc(f.nombre||"")}</span>${bolsaChip(x.t,byT[x.t]||{bbg:f})}</td>
     <td><span class="nm" style="max-width:190px;font-size:12px;color:var(--fg)">${esc(f.ind||"–")}</span></td>
-    <td class="n">${x.gap!=null&&x.est.fase!=="abierta"?pct(x.gap,1):'<span class="faint" title="Solo se calcula con la bolsa cerrada">–</span>'}</td>
+    <td class="n">${x.gap!=null&&x.est.fase!=="abierta"?pct(x.gap,1):'<span class="faint" title="Solo se calcula con la bolsa cerrada">–</span>'}</td><td>${chipTiming(x.timing)}</td>
     <td>${f.earn?`<span class="chip ${x.win?"good":""}">${fecha(f.earn)}</span>`:'<span class="faint">–</span>'}</td>
     <td class="n">${x.mov!=null?fmt(x.mov,0)+"%":'<span class="faint">–</span>'}</td><td class="n">${pct(x.r1m,1)}</td>
     <td class="n">${x.rsi!=null?`<span class="${x.rsi>75?"down":x.rsi<30?"faint":""}">${fmt(x.rsi,0)}</span>`:'<span class="faint">–</span>'}</td>
@@ -1498,11 +1507,11 @@ function renderBBG(){
     <div class="stats">${R.top.map((x,i)=>`<div class="stat" style="gap:6px"><span class="label">#${i+1} · ${esc(x.f.ind||"")}</span>
       <b style="display:flex;align-items:center;gap:8px">${tkBtn(x.t)}<span class="mono" style="font-size:13px;color:var(--muted);font-weight:600">${fmt(x.score,1)} pts</span></b>
       <span class="muted" style="font-size:12px">${esc(x.f.nombre||"")}</span>
-      <span style="font-size:12px;display:flex;gap:6px;flex-wrap:wrap">${x.f.earn?`<span class="chip ${x.win?"good":""}">Reporta ${fecha(x.f.earn)}</span>`:""}${x.mov!=null?`<span class="chip">Vol ${fmt(x.mov,0)}%</span>`:x.beta!=null?`<span class="chip">Beta ${fmt(x.beta,1)}</span>`:""}${x.r1m!=null?`<span class="chip ${x.r1m>=0?"good":"bad"}">1M ${sgn(x.r1m,0)}</span>`:""}${bolsaChip(x.t,{bbg:x.f},true)}${x.gap!=null&&x.est.fase!=="abierta"?`<span class="chip ${x.gap>=0?"good":"bad"}" title="Gap esperado al abrir">Gap ${sgn(x.gap,1)}</span>`:""}</span></div>`).join("")}</div>
+      <span style="font-size:12px;display:flex;gap:6px;flex-wrap:wrap">${x.f.earn?`<span class="chip ${x.win?"good":""}">Reporta ${fecha(x.f.earn)}</span>`:""}${x.mov!=null?`<span class="chip">Vol ${fmt(x.mov,0)}%</span>`:x.beta!=null?`<span class="chip">Beta ${fmt(x.beta,1)}</span>`:""}${x.r1m!=null?`<span class="chip ${x.r1m>=0?"good":"bad"}">1M ${sgn(x.r1m,0)}</span>`:""}${x.timing&&x.timing.txt!=="Normal"?chipTiming(x.timing):""}${bolsaChip(x.t,{bbg:x.f},true)}${x.gap!=null&&x.est.fase!=="abierta"?`<span class="chip ${x.gap>=0?"good":"bad"}" title="Gap esperado al abrir">Gap ${sgn(x.gap,1)}</span>`:""}</span></div>`).join("")}</div>
     <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center"><button class="btn primary" id="rkUsar" type="button">Usar estas 5 como mi cartera y simular</button><span class="faint" style="font-size:12px">Pone US$200.000 en cada una y te lleva a Cartera → Monte Carlo.</span></div></div>`:""}
   ${scatterRK(R)}
   <div class="card" style="padding:0;gap:0"><header style="padding:14px 16px"><h3>Ranking para el torneo</h3><span class="meta">${n?`Top ${Math.min(rkF.n,n)} de ${n.toLocaleString("es-CL")}`:"Ninguna acción pasa los filtros"}</span></header>
-  <div class="tablebox" style="border:0;border-top:1px solid var(--line);border-radius:0 0 12px 12px"><table><thead><tr><th class="n">#</th><th>Acción · bolsa</th><th>Industria</th><th class="n" title="Beta × movimiento de hoy del ETF de su país (solo con la bolsa cerrada)">Gap al abrir</th><th>Resultados</th><th class="n">Volatilidad</th><th class="n">1 mes</th><th class="n">RSI</th><th class="n">Beta</th><th class="n">Short</th><th class="n">Upside</th><th class="n">Noticias</th><th>Puntaje</th><th><span class="sr">Cartera</span></th></tr></thead>
+  <div class="tablebox" style="border:0;border-top:1px solid var(--line);border-radius:0 0 12px 12px"><table><thead><tr><th class="n">#</th><th>Acción · bolsa</th><th>Industria</th><th class="n" title="Beta × movimiento de hoy del ETF de su país (solo con la bolsa cerrada)">Gap al abrir</th><th>Timing</th><th>Resultados</th><th class="n">Volatilidad</th><th class="n">1 mes</th><th class="n">RSI</th><th class="n">Beta</th><th class="n">Short</th><th class="n">Upside</th><th class="n">Noticias</th><th>Puntaje</th><th><span class="sr">Cartera</span></th></tr></thead>
   <tbody>${R.u.slice(0,rkF.n).map((x,i)=>filaRK(x,i,enC)).join("")}</tbody></table></div>
   ${n>rkF.n?`<div style="padding:12px 16px"><button class="btn small" id="rkMas" type="button">Ver ${Math.min(50,n-rkF.n)} más</button></div>`:""}</div>
   <details class="how"><summary>¿Cómo se calcula el puntaje?</summary><div class="sub" style="max-width:80ch;display:flex;flex-direction:column;gap:6px;margin-top:8px">
@@ -1719,7 +1728,7 @@ function renderPort(){
       <td class="n">${p.pnl==null?"–":`<span class="${p.pnl>=0?"up":"down"}">${p.pnl>=0?"+":"−"}${usd(Math.abs(p.pnl))}</span>`}</td>
       <td class="n">${p.rpnl==null?"–":`<span class="${p.rpnl>=0?"up":"down"}">${p.rpnl>=0?"+":"−"}${usd(Math.abs(p.rpnl))}</span>`}</td>
       <td class="n">${pct(p.abs,2)}</td><td class="n"><b>${pct(p.rel,2)}</b></td>
-      <td class="n">${gap!=null&&e.fase!=="abierta"?pct(gap,1):'<span class="faint">–</span>'}</td>
+      <td class="n">${gap!=null&&e.fase!=="abierta"?pct(gap,1):'<span class="faint">–</span>'}</td><td>${chipTiming(timingDe(gap,codigoBolsa(p.k,a),BBG?.fecha))}</td>
       <td>${a&&a.earn?`<span class="chip ${a.enVentana?"good":""}">${fecha(a.earn)}</span>`:"–"}</td><td>${a&&a.momentum?momChip(a.momentum):"–"}</td></tr>`}).join("");
   const mx=Math.max(1,...P.map(p=>Math.abs(p.rel||0)));
   const barras=[...P].filter(p=>p.rel!=null).sort((a,b)=>b.rel-a.rel).map(p=>`<div style="display:grid;grid-template-columns:110px 1fr 64px;gap:8px;align-items:center;font-size:12.5px"><span class="mono" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(p.k)}</span>
@@ -1732,7 +1741,7 @@ function renderPort(){
     <div class="stat"><span class="label">Rentabilidad del fondo</span><b class="${st.ret>=0?"up":"down"}">${sgn(st.ret,2)}</b><span class="muted">${st.pnlTot>=0?"+":"−"}${usd(Math.abs(st.pnlTot))}</span>${dlt(st.ret,"ret")}</div>
     <div class="stat ${st.retRel<0?"badS":""}"><span class="label">Contra el índice WLS</span><b class="${st.retRel>=0?"up":"down"}">${sgn(st.retRel,2)}</b><span class="muted">esto es lo que define el ranking</span>${dlt(st.retRel,"retRel")}</div></div>
   ${ali.length?`<div class="card"><header><h2>Qué revisar ahora</h2></header><div class="rules">${ali.map(([c,t])=>`<div class="rule"><span class="dot ${c==="i"?"":c}"></span><span>${esc(t)}</span></div>`).join("")}</div></div>`:""}
-  <div class="tablebox"><table><thead><tr><th>Acción · bolsa</th><th class="n">Precio</th><th class="n">Monto US$</th><th class="n">% fondo</th><th class="n">Hoy US$</th><th class="n">Hoy vs WLS</th><th class="n">Total</th><th class="n">Total vs WLS</th><th class="n" title="Beta × movimiento del ETF de su país, solo si la bolsa está cerrada (requiere Mi Bloomberg)">Gap al abrir</th><th>Resultados</th><th>Momentum</th></tr></thead><tbody>${fil}</tbody></table></div>
+  <div class="tablebox"><table><thead><tr><th>Acción · bolsa</th><th class="n">Precio</th><th class="n">Monto US$</th><th class="n">% fondo</th><th class="n">Hoy US$</th><th class="n">Hoy vs WLS</th><th class="n">Total</th><th class="n">Total vs WLS</th><th class="n" title="Beta × movimiento del ETF de su país, solo si la bolsa está cerrada (requiere Mi Bloomberg)">Gap al abrir</th><th>Timing</th><th>Resultados</th><th>Momentum</th></tr></thead><tbody>${fil}</tbody></table></div>
   <div class="two"><div class="card"><header><h2>Cada posición contra el WLS</h2></header><div style="display:flex;flex-direction:column;gap:6px">${barras||'<p class="muted">Sin datos de retorno relativo.</p>'}</div></div>
     <div class="card"><header><h2>Evolución del portafolio</h2></header>${lineaHist(PORT.snaps)}</div></div>
   <div class="card" style="flex-direction:row;align-items:center;gap:12px;flex-wrap:wrap"><span style="flex:1;min-width:220px">Pasa estas posiciones a <b>Cartera</b> para ver correlación, volatilidad y la simulación Monte Carlo del portafolio real.</span><button class="btn" id="portACartera" type="button">Usar en Cartera</button></div>
