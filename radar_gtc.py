@@ -64,7 +64,7 @@ NUEVAS = "Nuevas del día"
 
 # ---- Lista dinamica ----
 TOTAL_CON_WLS = 110          # con wls.txt: cuantas acciones de tu lista de Bloomberg se analizan
-TOTAL_ACCIONES = 70          # cuantas acciones sigue el radar cada dia (sin contar equipo.txt)
+TOTAL_ACCIONES = 90          # cuantas acciones sigue el radar cada dia (sin contar equipo.txt)
 NUCLEO = [                   # 25 fijas: siempre se siguen, para tener continuidad
     "IONQ", "RGTI", "OKLO", "LEU", "CCJ", "RKLB", "ASTS", "NBIS", "CRWV", "IREN",
     "NVDA", "AMD", "TSM", "MU", "MSTR", "COIN", "HOOD", "PLTR", "APP", "JOBY",
@@ -96,6 +96,9 @@ def tema_por_industria(industria, sector):
     return SECTOR_TEMA.get(sector or "", "Otras")
 
 
+EQUIPO_BBG = {}
+
+
 def leer_equipo():
     """equipo.txt: un ticker por linea; opcional ', motivo'. Lineas con # se ignoran."""
     import os
@@ -107,24 +110,72 @@ def leer_equipo():
         if not linea:
             continue
         partes = [x.strip() for x in linea.replace(";", ",").split(",", 1)]
-        t = partes[0].upper().replace(" US EQUITY", "").replace(" EQUITY", "").split()[0]
+        r_ = a_yahoo(partes[0])
+        if not r_:
+            continue
+        t = r_[0]
+        EQUIPO_BBG[t] = r_[1]
         out[t] = partes[1] if len(partes) > 1 and partes[1] else "Agregada por el equipo"
     return out
+
+# Bolsa Bloomberg -> (sufijo Yahoo, moneda, divisor). Divisor 100 = la bolsa cotiza en centavos (peniques, etc.)
+BBG2YF = {
+    "US": ("", "USD", 1), "UN": ("", "USD", 1), "UW": ("", "USD", 1), "UQ": ("", "USD", 1), "UA": ("", "USD", 1),
+    "UR": ("", "USD", 1), "UP": ("", "USD", 1), "UV": ("", "USD", 1),
+    "CN": (".TO", "CAD", 1), "CT": (".TO", "CAD", 1), "BZ": (".SA", "BRL", 1), "MM": (".MX", "MXN", 1), "CI": (".SN", "CLP", 1),
+    "LN": (".L", "GBP", 100), "GR": (".DE", "EUR", 1), "GY": (".DE", "EUR", 1), "FP": (".PA", "EUR", 1), "NA": (".AS", "EUR", 1),
+    "SM": (".MC", "EUR", 1), "IM": (".MI", "EUR", 1), "BB": (".BR", "EUR", 1), "AV": (".VI", "EUR", 1), "PL": (".LS", "EUR", 1),
+    "FH": (".HE", "EUR", 1), "ID": (".IR", "EUR", 1), "SW": (".SW", "CHF", 1), "SE": (".SW", "CHF", 1), "SS": (".ST", "SEK", 1),
+    "DC": (".CO", "DKK", 1), "NO": (".OL", "NOK", 1), "PW": (".WA", "PLN", 1), "HB": (".BD", "HUF", 1), "TI": (".IS", "TRY", 1),
+    "IT": (".TA", "ILS", 100), "AB": (".SR", "SAR", 1), "QD": (".QA", "QAR", 1), "SJ": (".JO", "ZAR", 100),
+    "JP": (".T", "JPY", 1), "JT": (".T", "JPY", 1), "KS": (".KS", "KRW", 1), "KQ": (".KQ", "KRW", 1), "TT": (".TW", "TWD", 1),
+    "HK": (".HK", "HKD", 1), "C1": (".SS", "CNY", 1), "C2": (".SZ", "CNY", 1), "IN": (".NS", "INR", 1), "IS": (".NS", "INR", 1),
+    "IB": (".BO", "INR", 1), "SP": (".SI", "SGD", 1), "TB": (".BK", "THB", 1), "IJ": (".JK", "IDR", 1), "PM": (".PS", "PHP", 1),
+    "AU": (".AX", "AUD", 1), "NZ": (".NZ", "NZD", 1),
+}
+SUF2MON = {v[0]: (v[1], v[2]) for v in BBG2YF.values() if v[0]}
+
+
+def a_yahoo(texto):
+    """'000660 KS Equity' -> ('000660.KS', '000660 KS', 'KS'). None si la bolsa no se puede leer en Yahoo."""
+    p = texto.upper().replace(" EQUITY", "").split()
+    if not p:
+        return None
+    sym, ex = p[0], (p[1] if len(p) > 1 else "US")
+    if ex not in BBG2YF:
+        return None
+    suf = BBG2YF[ex][0]
+    if ex == "HK" and sym.isdigit():
+        sym = sym.zfill(4)
+    if ex in ("SS", "DC", "NO", "FH") and len(sym) >= 4 and sym[-1] in "AB" and not sym.isdigit():
+        sym = sym[:-1] + "-" + sym[-1]          # ERICB -> ERIC-B (clases de acciones nordicas)
+    sym = sym.replace("/", "-")
+    bbg = f"{p[0]} {ex}" if suf else f"{p[0]} US"
+    return sym + suf, bbg, ("US" if not suf else ex)
+
+
+def factor_usd(t, fx):
+    """Multiplicador para pasar precio/monto en moneda local a USD (incluye centavos)."""
+    for suf, (mon, div) in SUF2MON.items():
+        if t.endswith(suf):
+            v = fx.get(mon)
+            return (1.0 / (v * div)) if v else None
+    return 1.0
+
 
 def leer_wls():
     """wls.txt: un ticker por linea (los del indice WLS que interesan). Se priorizan al elegir las acciones del dia."""
     import os
     if not os.path.exists(WLS_TXT):
-        return set()
-    out = set()
+        return {}
+    out = {}
     for linea in open(WLS_TXT, encoding="utf-8"):
-        linea = linea.split("#")[0].strip().upper()
+        linea = linea.split("#")[0].strip()
         if not linea:
             continue
-        p = linea.replace(" EQUITY", "").split()
-        if len(p) > 1 and p[1] not in ("US", "UN", "UW", "UQ", "UA", "UR", "UP", "UV"):
-            continue  # por ahora solo acciones de EE.UU. (Yahoo y horario de Chile)
-        out.add(p[0].replace("/", "-"))
+        r_ = a_yahoo(linea)
+        if r_:
+            out[r_[0]] = r_[1]     # simbolo Yahoo -> ticker Bloomberg
     return out
 
 
@@ -173,8 +224,8 @@ def descargar(tickers):
     import yfinance as yf
     for intento in range(4):
         df = yf.download(tickers, period="3y", interval="1d", auto_adjust=True,
-                         progress=False, threads=False)
-        if not df.empty and df["Close"].notna().sum().gt(60).sum() > len(tickers) * 0.7:
+                         progress=False, threads=True)
+        if not df.empty and df["Close"].notna().sum().gt(60).sum() > len(tickers) * 0.5:
             return df
         print(f"  Yahoo respondio incompleto, reintento {intento + 1}...")
         time.sleep(20 * (intento + 1))
@@ -319,6 +370,11 @@ def demo(tickers, temas):
     for t in tickers:
         if t == TASA:
             close[t] = 4.2 + np.cumsum(rng.normal(0, 0.04, n)) * 0.3 - mkt.cumsum() * 3
+            vol[t] = np.zeros(n)
+            continue
+        if t.endswith("=X"):      # tipo de cambio de ejemplo (unidades por USD)
+            close[t] = np.full(n, {"KRW": 1400, "JPY": 150, "TWD": 32, "CNY": 7.2, "INR": 84, "HKD": 7.8, "GBP": 0.78,
+                                   "EUR": 0.92, "SEK": 10.5, "ZAR": 18, "CHF": 0.88, "BRL": 5.4}.get(t[:3], 1.0))
             vol[t] = np.zeros(n)
             continue
         if t in DRIVERS or t in LIDERES_EXTRA:
@@ -572,7 +628,7 @@ def descubrir(ya, maximo=MAX_NUEVAS):
     return {t: " · ".join(dict.fromkeys(v["motivos"])) for t, v in orden}
 
 
-def preseleccion(close, volu, pool, forzadas, total, preferidas=frozenset()):
+def preseleccion(close, volu, pool, forzadas, total, preferidas=frozenset(), fac=None):
     """Elige las acciones del dia: forzadas + las de mejor pre-puntaje (volatilidad, momentum, liquidez)."""
     ret = close.pct_change(fill_method=None)
     filas = {}
@@ -580,8 +636,11 @@ def preseleccion(close, volu, pool, forzadas, total, preferidas=frozenset()):
         if t not in close or close[t].notna().sum() < 60:
             continue
         s = close[t].dropna()
-        liq = float((close[t] * volu[t]).tail(20).mean() / 1e6) if t in volu else 0
-        if liq < LIQUIDEZ_MIN_USD_MM or s.iloc[-1] < 3:
+        f_ = (fac or {}).get(t, 1.0)
+        if f_ is None:
+            continue      # no hay tipo de cambio: no se puede medir en USD
+        liq = float((close[t] * volu[t]).tail(20).mean() / 1e6) * f_ if t in volu else 0
+        if liq < LIQUIDEZ_MIN_USD_MM or s.iloc[-1] * f_ < 1:
             continue
         vol20 = float(ret[t].tail(20).std() * np.sqrt(252) * 100)
         r1m = float((s.iloc[-1] / s.iloc[-22] - 1) * 100) if len(s) > 22 else 0
@@ -604,10 +663,10 @@ def preseleccion(close, volu, pool, forzadas, total, preferidas=frozenset()):
 def construir(es_demo=False, modo_wls=False):
     temas = {t: tema for tema, ts in SEMILLA.items() for t in ts}
     equipo = leer_equipo()
-    lista_wls = leer_wls()                     # para marcar cuales estan en tu lista
-    wls = lista_wls if modo_wls else set()     # solo en la pagina "Mi lista" manda la seleccion
+    lista_wls = leer_wls()                     # simbolo Yahoo -> ticker Bloomberg (todas las bolsas del WLS)
+    wls = lista_wls                            # ambas paginas incluyen las acciones del WLS de todos los paises
     motivos, origen = {}, {}
-    if wls and not es_demo:
+    if wls and modo_wls and not es_demo:
         cands = {}   # con wls.txt el radar sigue SOLO tus acciones de Bloomberg (+ fijas + equipo)
         print("wls.txt encontrado: se omiten las listas de Yahoo")
     elif es_demo:
@@ -629,13 +688,15 @@ def construir(es_demo=False, modo_wls=False):
     for t, mtv in equipo.items():
         temas[t] = EQUIPO if t not in temas or temas[t] == NUEVAS else temas[t]
         motivos[t] = mtv
-    if wls:
+    if wls and modo_wls:
         pool = [t for t in temas if t in wls or t in NUCLEO or t in equipo]
         total = max(TOTAL_ACCIONES, TOTAL_CON_WLS)
     else:
         pool = list(temas)
         total = TOTAL_ACCIONES
-    todos = pool + [d for d in list(DRIVERS) + list(LIDERES_EXTRA) + [TASA] if d not in pool]
+    monedas = sorted({SUF2MON[s_][0] for t in pool for s_ in SUF2MON if t.endswith(s_)})
+    fx_t = [f"{mon}=X" for mon in monedas]
+    todos = pool + [d for d in list(DRIVERS) + list(LIDERES_EXTRA) + [TASA] + fx_t if d not in pool]
 
     print(f"Descargando precios de {len(pool)} candidatas...")
     ohlc = None
@@ -650,10 +711,24 @@ def construir(es_demo=False, modo_wls=False):
         ohlc = ohlc[dias_bolsa]
         close, volu = ohlc["Close"], ohlc["Volume"]
 
+    fx = {mon: float(close[f"{mon}=X"].dropna().iloc[-1]) for mon in monedas
+          if f"{mon}=X" in close and close[f"{mon}=X"].notna().any()}
+    fac = {t: factor_usd(t, fx) for t in pool}
+    if monedas:
+        print(f"Monedas: {', '.join(f'{k} {v:.4g}' for k, v in fx.items())}")
     forzadas = list(dict.fromkeys([t for t in NUCLEO if t in temas] + list(equipo)))
-    tickers = preseleccion(close, volu, pool, forzadas, total, frozenset(wls))
+    tickers = preseleccion(close, volu, pool, forzadas, total, frozenset(wls), fac)
     for t in tickers:
         origen[t] = "equipo" if t in equipo else "nucleo" if t in NUCLEO else "wls" if t in wls else "base" if t in sum(SEMILLA.values(), []) else "nueva"
+    def bbg_de(t):
+        if t in wls:
+            return wls[t]
+        if t in EQUIPO_BBG:
+            return EQUIPO_BBG[t]
+        for suf in SUF2MON:
+            if t.endswith(suf):
+                return t
+        return f"{t.replace('-', '/')} US"
     print(f"Lista del dia: {len(tickers)} acciones ({sum(1 for t in tickers if origen[t]=='nueva')} nuevas)")
 
     if es_demo:
@@ -687,7 +762,7 @@ def construir(es_demo=False, modo_wls=False):
     m["sma50"] = (ult / close.tail(50).mean() - 1)[tickers] * 100
     m["rsi"] = [rsi(close[t].dropna()).iloc[-1] for t in tickers]
     m["volRatio"] = (volu[tickers].tail(5).mean() / volu[tickers].tail(50).mean())
-    m["liq"] = (close[tickers] * volu[tickers]).tail(20).mean() / 1e6
+    m["liq"] = (close[tickers] * volu[tickers]).tail(20).mean() / 1e6 * pd.Series({t: (fac.get(t) or 1.0) for t in tickers})
     rm = ret["ACWI"]
     m["beta"] = [ret[t].tail(120).cov(rm.tail(120)) / rm.tail(120).var() for t in tickers]
     m["relMkt1m"] = m["r1m"] - var("ACWI", 21)
@@ -755,6 +830,7 @@ def construir(es_demo=False, modo_wls=False):
         target = inf.get("target")
         a = {
             "t": t, "rank": rank, "nombre": inf.get("nombre") or t, "tema": row["tema"],
+            "tkBBG": bbg_de(t), "bolsaBBG": bbg_de(t).split()[-1],
             "pais": inf.get("pais"), "bolsa": inf.get("bolsa"), "sector": inf.get("sector"), "industria": inf.get("industria"),
             "desc": inf.get("desc"), "web": inf.get("web"), "mcap": inf.get("mcap"),
             "precio": r(ult[t]), "r1d": r(row["r1d"], 1), "r1s": r(row["r1s"], 1),

@@ -1,5 +1,17 @@
-# Acciones que el equipo quiere seguir SIEMPRE (por ejemplo, las que encontraron en Bloomberg con EQS
-# o las que ya compraron). Una por línea. Opcional: una coma y el motivo.
-# Ejemplos (borra el # para activarlos):
-# ASML, Proveedor clave de chips; reporta el 14 oct
-# VRT, Infraestructura eléctrica para centros de datos
+# Acciones que el equipo quiere seguir SIEMPRE (una por linea, formato Bloomberg o Yahoo).
+# Opcional: despues de una coma, el motivo.  Ejemplo:  2330 TT, TSMC reporta el 15-oct
+# Aqui va la CARTERA ACTUAL, asi la pagina siempre tiene sus datos (actualizado 16-oct):
+MU UW, Cartera actual
+CELH US, Cartera actual
+MSCI US, Cartera actual
+7799 TT, Cartera actual
+688475 C1, Cartera actual
+DALBHARA IN, Cartera actual
+MTB US, Cartera actual
+PLAZB SS, Cartera actual
+SWSOLAR IN, Cartera actual
+IRFC IN, Cartera actual
+KINVB SS, Cartera actual
+EQU SJ, Cartera actual
+ARGX BB, Cartera actual
+2330 TT, Cartera actual
