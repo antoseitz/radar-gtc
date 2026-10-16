@@ -2,8 +2,8 @@ name: Actualizar Radar GTC
 
 on:
   schedule:
-    - cron: "30 11 * * 1-5"   # 08:30 Chile, antes de la apertura
-    - cron: "15 21 * * 1-5"   # 18:15 Chile, despues del cierre
+    - cron: "15 11 * * 1-5"   # 08:15 Chile, antes de la apertura
+    - cron: "5 13-21 * * 1-5" # cada hora con la bolsa de EE.UU. abierta (10:05 a 18:05 Chile)
   workflow_dispatch:          # boton "Run workflow" para actualizar a mano
 
 permissions:
