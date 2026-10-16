@@ -9,6 +9,7 @@ Uso:
 Para cambiar la lista de acciones, edita SEMILLA.
 """
 import json
+import os
 import sys
 import time
 from datetime import date, datetime, timezone
@@ -904,8 +905,184 @@ def construir(es_demo=False, modo_wls=False):
     }
 
 
+# ---------------- MODO AUTOMATICO (GitHub cada 15 minutos) ----------------
+FUTUROS = {"ES=F": "S&P 500 (futuro)", "NQ=F": "Nasdaq 100 (futuro)", "NKD=F": "Nikkei 225 (futuro CME)",
+           "CL=F": "Petróleo WTI", "GC=F": "Oro", "BTC-USD": "Bitcoin (opera 24/7)"}
+TEMAS_MERCADO = {"EE.UU.": "Wall Street stock futures", "Corea": "KOSPI Korea stocks", "Taiwán": "Taiwan stocks TAIEX",
+                 "Japón": "Nikkei Japan stocks", "China / Hong Kong": "China stocks Hang Seng", "India": "India Sensex Nifty stocks",
+                 "Europa": "European stocks STOXX", "Chips / IA": "semiconductor stocks"}
+ARCHIVOS = {"general": "docs/radar_gtc.json", "wls": "docs/radar_wls.json"}
+
+
+def _bajar_json(url):
+    import urllib.request
+    try:
+        req = urllib.request.Request(url + f"?t={int(time.time())}", headers={"User-Agent": "radar-gtc", "Cache-Control": "no-cache"})
+        with urllib.request.urlopen(req, timeout=30) as r_:
+            return json.loads(r_.read().decode("utf-8").replace("NaN", "null"))
+    except Exception as e:
+        print(f"  No pude leer {url}: {e}")
+        return None
+
+
+def _guardar(datos, out):
+    texto = json.dumps(datos, ensure_ascii=False, separators=(",", ":"), default=str)
+    texto = texto.replace(":NaN", ":null").replace(":-Infinity", ":null").replace(":Infinity", ":null")
+    texto = texto.replace(",NaN", ",null").replace("[NaN", "[null")
+    os.makedirs(os.path.dirname(out) or ".", exist_ok=True)
+    with open(out, "w", encoding="utf-8") as f:
+        f.write(texto)
+
+
+def _edad_min(iso):
+    try:
+        return (datetime.now(timezone.utc) - datetime.fromisoformat(iso)).total_seconds() / 60
+    except Exception:
+        return 1e9
+
+
+def noticias_mercado():
+    import urllib.parse
+    out = []
+    for region, q in TEMAS_MERCADO.items():
+        try:
+            items = _rss(f"https://news.google.com/rss/search?q={urllib.parse.quote(q)}+when:1d&hl=en-US&gl=US&ceid=US:en", "Google News")
+        except Exception:
+            items = []
+        out.append({"region": region, "items": items[:4]})
+    return out
+
+
+def solo_futuros():
+    import yfinance as yf
+    cl = yf.download(list(FUTUROS), period="7d", interval="1d", auto_adjust=True, progress=False, threads=True)["Close"]
+    fut = []
+    for t, nom in FUTUROS.items():
+        if t in cl and cl[t].dropna().size >= 2:
+            s_ = cl[t].dropna()
+            fut.append({"t": t, "nombre": nom, "precio": r(float(s_.iloc[-1])), "r1d": r((float(s_.iloc[-1]) / float(s_.iloc[-2]) - 1) * 100, 2)})
+    return fut
+
+
+def rapido(datos, con_noticias):
+    """Actualiza solo precios (y noticias) sobre el ultimo calculo completo: tarda 1-3 minutos."""
+    import yfinance as yf
+    acc = [a["t"] for a in datos["acciones"]]
+    mer = [m["t"] for m in datos.get("mercado", []) if m.get("tipo") != "tasa"]
+    todos = list(dict.fromkeys(acc + mer + list(FUTUROS)))
+    df = yf.download(todos, period="7d", interval="1d", auto_adjust=True, progress=False, threads=True)
+    cl = df["Close"] if not df.empty else None
+    def ult2(t):
+        if cl is None or t not in cl:
+            return None, None
+        s_ = cl[t].dropna()
+        if len(s_) < 2:
+            return None, None
+        return float(s_.iloc[-1]), (float(s_.iloc[-1]) / float(s_.iloc[-2]) - 1) * 100
+    n = 0
+    for a in datos["acciones"]:
+        px, ch = ult2(a["t"])
+        if px is None:
+            continue
+        a["precio"], a["r1d"] = r(px), r(ch, 1)
+        if a.get("target"):
+            a["upside"] = r((a["target"] / px - 1) * 100, 0)
+        if a.get("hist"):
+            a["hist"][-1] = r(px)
+        n += 1
+    for m in datos.get("mercado", []):
+        px, ch = ult2(m["t"])
+        if px is not None and m.get("tipo") != "tasa":
+            m["precio"], m["r1d"] = r(px), r(ch, 1)
+    fut = []
+    for t, nom in FUTUROS.items():
+        px, ch = ult2(t)
+        if px is not None:
+            fut.append({"t": t, "nombre": nom, "precio": r(px), "r1d": r(ch, 2)})
+    datos["futuros"] = fut
+    print(f"Precios rapidos: {n} de {len(acc)} acciones")
+    if con_noticias:
+        print("Actualizando noticias...")
+        for a in datos["acciones"]:
+            try:
+                nv = leer_noticias(yf.Ticker(a["t"]), a["t"], a.get("nombre"))
+                if nv:
+                    a["noticias"] = nv
+            except Exception:
+                pass
+        datos["noticiasMercado"] = noticias_mercado()
+        datos["noticiasHora"] = datetime.now(timezone.utc).isoformat(timespec="minutes")
+    for a in datos["acciones"]:
+        try:
+            a["senales"] = senales(a)
+        except Exception:
+            pass
+    datos["generado"] = datetime.now(timezone.utc).isoformat(timespec="minutes")
+    datos["tipoAct"] = "rapida"
+    return datos
+
+
+def auto():
+    """Decide que hacer en cada ejecucion de GitHub (cada 15 min)."""
+    sitio = os.environ.get("SITIO", "").rstrip("/") + "/"
+    manual = os.environ.get("MANUAL") == "true"
+    ahora = datetime.now(timezone.utc)
+    habil = ahora.weekday() < 5 or (ahora.weekday() == 6 and ahora.hour >= 22)  # lunes a viernes (+ domingo noche: abre Asia)
+    previos = {k: _bajar_json(sitio + os.path.basename(v)) for k, v in ARCHIVOS.items()}
+    gen = previos.get("general")
+    edad_full = _edad_min((gen or {}).get("completo") or (gen or {}).get("ultimoCompleto") or "") if gen else 1e9
+    edad_act = _edad_min((gen or {}).get("generado") or "") if gen else 1e9
+    edad_not = _edad_min((gen or {}).get("noticiasHora") or (gen or {}).get("completo") or "") if gen else 1e9
+    publicar = True
+    if manual or gen is None or (habil and edad_full >= 55):
+        print("== Actualizacion COMPLETA ==")
+        for modo, out in ARCHIVOS.items():
+            try:
+                if modo == "wls" and not leer_wls():
+                    continue
+                d = construir(False, modo == "wls")
+                d["modo"] = modo
+                d["completo"] = d["generado"]
+                d["tipoAct"] = "completa"
+                try:
+                    d["futuros"] = solo_futuros()
+                except Exception:
+                    d["futuros"] = []
+                d["noticiasMercado"] = noticias_mercado()
+                d["noticiasHora"] = d["generado"]
+                _guardar(d, out)
+                print(f"Listo {out}")
+            except (SystemExit, Exception) as e:
+                print(f"{modo}: {e.__class__.__name__}: {e}")
+                if previos.get(modo):
+                    _guardar(previos[modo], out)
+                elif modo == "general":
+                    raise
+    elif habil or edad_act >= 55 or edad_not >= 55:
+        noticias = (not habil) and edad_not >= 55
+        print(f"== Actualizacion RAPIDA (precios{' + noticias' if noticias else ''}) ==")
+        for modo, out in ARCHIVOS.items():
+            d = previos.get(modo)
+            if not d:
+                continue
+            try:
+                d = rapido(d, noticias)
+            except Exception as e:
+                print(f"{modo}: rapida fallo ({e}); se mantiene la anterior")
+            _guardar(d, out)
+    else:
+        print("Fin de semana: no hay nada nuevo que publicar todavia")
+        publicar = False
+    salida = os.environ.get("GITHUB_OUTPUT")
+    if salida:
+        with open(salida, "a") as f:
+            f.write(f"publicar={'si' if publicar else 'no'}\n")
+
+
 def main():
     es_demo = "--demo" in sys.argv
+    if "--auto" in sys.argv:
+        return auto()
     modo_wls = "--wls" in sys.argv
     if modo_wls and not leer_wls():
         raise SystemExit("--wls: no hay wls.txt con acciones; se omite la pagina Mi lista")
