@@ -540,6 +540,7 @@ td .bchip{margin-top:3px}
     <button class="tab" role="tab" data-tab="acciones" aria-selected="false">Acciones</button>
     <button class="tab" role="tab" data-tab="grupos" aria-selected="false">Grupos</button>
     <button class="tab" role="tab" data-tab="cartera" aria-selected="false">Cartera<span class="count" id="cartCount">0</span></button>
+    <button class="tab" role="tab" data-tab="port" aria-selected="false">Portafolio<span class="count" id="portCount">0</span></button>
     <button class="tab" role="tab" data-tab="bbg" aria-selected="false">Mi Bloomberg<span class="count" id="bbgCount">0</span></button>
     <button class="tab" role="tab" data-tab="guia" aria-selected="false">Guía</button>
   </nav>
@@ -549,6 +550,7 @@ td .bchip{margin-top:3px}
   <section id="tab-acciones" hidden></section>
   <section id="tab-grupos" hidden></section>
   <section id="tab-cartera" hidden></section>
+  <section id="tab-port" hidden></section>
   <section id="tab-bbg" hidden></section>
   <section id="tab-guia" hidden>
     <div class="prose">
@@ -616,7 +618,7 @@ const BOLSAS={
   TI:{n:"Estambul",tz:"Europe/Istanbul",ses:[[10,18]]},SJ:{n:"Johannesburgo",tz:"Africa/Johannesburg",ses:[[9,17]]},IT:{n:"Tel Aviv",tz:"Asia/Jerusalem",ses:[[9.98,17.42]]},
   AB:{n:"Arabia Saudita",tz:"Asia/Riyadh",ses:[[10,15]],dias:[0,1,2,3,4]},KK:{n:"Kuwait",tz:"Asia/Kuwait",ses:[[9,12.67]],dias:[0,1,2,3,4]},
   QD:{n:"Qatar",tz:"Asia/Qatar",ses:[[9.5,13.25]],dias:[0,1,2,3,4]},UH:{n:"Abu Dabi",tz:"Asia/Dubai",ses:[[10,15]]},DU:{n:"Dubái",tz:"Asia/Dubai",ses:[[10,15]]},
-  IN:{n:"India",tz:"Asia/Kolkata",ses:[[9.25,15.5]]},IB:{n:"India",tz:"Asia/Kolkata",ses:[[9.25,15.5]]},
+  IN:{n:"India",tz:"Asia/Kolkata",ses:[[9.25,15.5]]},IS:{n:"India",tz:"Asia/Kolkata",ses:[[9.25,15.5]]},IB:{n:"India",tz:"Asia/Kolkata",ses:[[9.25,15.5]]},
   JP:{n:"Tokio",tz:"Asia/Tokyo",ses:[[9,11.5],[12.5,15.5]]},JT:{n:"Tokio",tz:"Asia/Tokyo",ses:[[9,11.5],[12.5,15.5]]},
   KS:{n:"Corea",tz:"Asia/Seoul",ses:[[9,15.5]]},KQ:{n:"Corea",tz:"Asia/Seoul",ses:[[9,15.5]]},
   TT:{n:"Taiwán",tz:"Asia/Taipei",ses:[[9,13.5]]},HK:{n:"Hong Kong",tz:"Asia/Hong_Kong",ses:[[9.5,12],[13,16]]},
@@ -634,7 +636,7 @@ function offsetTZ(tz,d){const p=partesTZ(tz,d);return Math.round((Date.UTC(p.y,p
 // hora local de la bolsa -> texto en hora de Chile (America/Santiago)
 function horaChile(code,h,d=new Date()){const b=BOLSAS[code];const dif=(offsetTZ("America/Santiago",d)-offsetTZ(b.tz,d))/60;let x=((h+dif)%24+24)%24;const H=Math.floor(x+1e-6),M=Math.round((x-H)*60);return`${String(H+(M===60?1:0)).padStart(2,"0")}:${String(M%60).padStart(2,"0")}`}
 function horarioChile(code){const b=BOLSAS[code];if(!b)return"";const s=b.ses;return`${horaChile(code,s[0][0])}–${horaChile(code,s[s.length-1][1])}`}
-function codigoBolsa(t,a){if(t&&t.includes(" "))return t.split(" ")[1];const p=(a&&a.bbg&&a.bbg.pais)||null;if(p&&p!=="US"&&BOLSAS[p])return p;return"US"}
+function codigoBolsa(t,a){const ex=a&&a.bbg&&a.bbg.exch;if(ex&&BOLSAS[ex])return ex;if(a&&a.bolsaBBG)return["UN","UW","UQ","UA","UP","UR","UV"].includes(a.bolsaBBG)?"US":a.bolsaBBG;if(t&&t.includes(" "))return t.split(" ")[1];const p=(a&&a.bbg&&a.bbg.pais)||null;if(p&&p!=="US"&&BOLSAS[p])return p;return"US"}
 function nombreBolsa(t,a){const c=codigoBolsa(t,a);if(c==="US"){const y=a&&a.bolsa;return BOLSA_YAHOO[y]||"EE.UU."}return(BOLSAS[c]||{}).n||c}
 // proxima apertura como instante real, escrita en hora de Chile ("hoy 22:00", "mañana 10:30", "lun 10:30")
 function proximaApertura(code,now=new Date()){const b=BOLSAS[code],dias=b.dias||[1,2,3,4,5],p=partesTZ(b.tz,now),a0=b.ses[0][0];
@@ -892,7 +894,7 @@ function secUniverso(){
   const prom=g=>{const v=g.map(a=>a.r1m).filter(x=>x!=null);return v.length?v.reduce((p,q)=>p+q,0)/v.length:0};
   const curva=g=>{const hs=g.map(a=>(a.hist||[]).filter(x=>x)).filter(h=>h.length>10),L=Math.min(...hs.map(h=>h.length));if(!hs.length||!isFinite(L))return[];return Array.from({length:L},(_,i)=>100*hs.reduce((s,h)=>s+h[h.length-L+i]/h[h.length-L],0)/hs.length)};
   const T=temas.map(t=>{const g=A.filter(a=>a.tema===t).sort((p,q)=>(q.r1m??-999)-(p.r1m??-999));return{t,g,r:prom(g),c:curva(g)}}).sort((a,b)=>(b.t==="Nuevas del día")-(a.t==="Nuevas del día")||b.r-a.r);
-  return`<section class="r-sec" id="s-univ"><div class="r-head"><span class="r-num">6</span><div><h2>¿Qué acciones seguimos y por qué?</h2><p>Hoy seguimos <b>${A.length} acciones</b>. ${D.nWLS?`Vienen de <b>tu lista de Bloomberg</b> (archivo wls.txt, ${D.nListaWLS} acciones del índice WLS que reportan en el desafío): cada día se analizan las <b>${D.nWLS}</b> que más se mueven, más <b>${D.nBase??"–"} fijas</b>${D.nEquipo?` y <b>${D.nEquipo} del equipo</b>`:""}.`:`La lista se arma sola cada día:`}<span ${D.nWLS?'hidden':''}> <b>${D.nBase??"–"} fijas</b> (el núcleo, para no perder continuidad)${D.nEquipo?`, <b>${D.nEquipo} del equipo</b> (archivo equipo.txt)`:""} y <b>${D.nDinamicas??"–"} que cambian a diario</b>: las de mejor puntaje entre cientos de candidatas, incluidas ${D.nNuevas||0} que hoy aparecieron en los rankings de Yahoo.</span> Todas cumplen precio sobre US$3 y más de US$20 millones transados al día. Las buscamos porque <b>se mueven mucho</b> (en un torneo solo gana quien se aleja del índice), son <b>fáciles de comprar y vender</b> y muchas <b>presentan resultados durante el desafío</b>. El gráfico de cada tema es el promedio de sus acciones en los últimos 3 meses.</p></div></div>
+  return`<section class="r-sec" id="s-univ"><div class="r-head"><span class="r-num">6</span><div><h2>¿Qué acciones seguimos y por qué?</h2><p>Hoy seguimos <b>${A.length} acciones</b>. ${D.nWLS&&D.modo==="wls"?`Vienen de <b>tu lista de Bloomberg</b> (archivo wls.txt, ${D.nListaWLS} acciones del índice WLS que reportan en el desafío): cada día se analizan las <b>${D.nWLS}</b> que más se mueven, más <b>${D.nBase??"–"} fijas</b>${D.nEquipo?` y <b>${D.nEquipo} del equipo</b>`:""}.`:`La lista se arma sola cada día${D.nWLS?` e incluye <b>${D.nWLS} acciones del índice WLS de todos los países</b> (archivo wls.txt)`:""}:`}<span ${D.nWLS&&D.modo==="wls"?'hidden':''}> <b>${D.nBase??"–"} fijas</b> (el núcleo, para no perder continuidad)${D.nEquipo?`, <b>${D.nEquipo} del equipo</b> (archivo equipo.txt)`:""} y <b>${D.nDinamicas??"–"} que cambian a diario</b>: las de mejor puntaje entre cientos de candidatas, incluidas ${D.nNuevas||0} que hoy aparecieron en los rankings de Yahoo.</span> Todas cumplen precio sobre US$3 y más de US$20 millones transados al día. Las buscamos porque <b>se mueven mucho</b> (en un torneo solo gana quien se aleja del índice), son <b>fáciles de comprar y vender</b> y muchas <b>presentan resultados durante el desafío</b>. El gráfico de cada tema es el promedio de sus acciones en los últimos 3 meses.</p></div></div>
     <div class="themes">${T.map(x=>`<div class="th1" style="--th:${colorTema(x.t)}"><div class="th1-h"><span class="tdot" style="background:${colorTema(x.t)}"></span><b>${esc(x.t)}</b><span class="th1-r ${x.r>=0?"up":"down"}">${sgn(x.r)}<small> mes</small></span></div>
       <p>${esc(TEMA_POR_QUE[x.t]||"Tema agregado por el equipo.")}</p>${spark(x.c,300,46)}
       <div class="th1-l">${x.g.slice(0,8).map(a=>`<button type="button" class="th1-a" data-open="${a.t}" title="${esc(a.motivo||"")}">${av(a,1)}<span>${esc(nombreCorto(a.nombre,a.t))}${a.motivo?`<small class="mot">${esc(a.motivo.split(" · ")[0])}</small>`:a.origen==="nucleo"?'<small class="mot">Fija</small>':a.origen==="wls"?'<small class="mot">De mi Bloomberg</small>':""}</span><span class="${(a.r1m??0)>=0?"up":"down"}">${sgn(a.r1m,0)}</span></button>`).join("")}${x.g.length>8?`<button type="button" class="th1-a" data-tema="${esc(x.t)}" style="display:block;width:100%;text-align:center;color:var(--brand);font-weight:600">Ver las ${x.g.length} en Acciones →</button>`:""}</div></div>`).join("")}</div>
@@ -1257,38 +1259,44 @@ function procesarFilas(rows,origen){
   // busca por prioridad: el primer nombre de la lista que aparezca gana
   const col=(inc,exc=[])=>{for(const x of inc){const i=H.findIndex(h=>h.includes(x)&&!exc.some(e=>h.includes(e)));if(i>=0)return i}return -1};
   const NOVOL=["IMPL","IMPVOL","IMP_VOL","IVOL"];
-  const c={t:col(["TICKER"]),sec:col(["SECURITY"]),nom:col(["SHORT NAME","NAME"],["TICKER","INDUSTRY","SECTOR","IND NAME"]),
+  const c={t:col(["TICKER"]),sec:col(["SECURITY"]),nom:col(["SHORT NAME","NAME"],["TICKER","INDUSTRY","SECTOR","IND NAME","PAIS"]),
     px:col(["PX_LAST","LAST PRICE","PX LAST","PRICE"],["TARGET","TGT","CHG","CHANGE","HIGH","LOW"]),
-    chg:col(["CHG_PCT_1D","CHG PCT 1D","1D CHG","% CHG","CHG_PCT","CHANGE %","CHG"],["1M","3M","MTHLY","MONTH","QUARTER","MA ","50D","YTD","5D","NET"]),
-    r1m:col(["CHG_PCT_1M","CHG PCT 1M","MTHLY CHG","MONTHLY CHANGE","MONTHLY CHG","1M CHG","% CHG 1M","1 MONTH","TOTAL RETURN 1M","RETURN 1M"],["VOL","AVG","NET"]),
-    r3m:col(["CHG_PCT_3M","CHG PCT 3M","QUARTERLY CHANGE","3M CHG","3 MONTH","RETURN 3M"],["VOL","AVG","NET"]),
+    chg:col(["CHG_PCT_1D","CHG PCT 1D","%1D","1D CHG","% CHG","CHG_PCT","CHANGE %","CHG"],["1M","3M","MTHLY","MONTH","QUARTER","MA ","50D","YTD","5D","NET"]),
+    r1m:col(["CHG_PCT_1M","CHG PCT 1M","%1M","1M CHANGE","MTHLY CHG","MONTHLY CHANGE","MONTHLY CHG","1M CHG","% CHG 1M","1 MONTH","TOTAL RETURN 1M","RETURN 1M"],["VOL","AVG","NET"]),
+    r3m:col(["CHG_PCT_3M","CHG PCT 3M","%3M","3M CHANGE","QUARTERLY CHANGE","3M CHG","3 MONTH","RETURN 3M"],["VOL","AVG","NET"]),
     mcap:col(["CUR_MKT_CAP","MKT CAP","MARKET CAP"]),
     iv:col(["IMPVOL","IMP_VOL","IMPLIED VOL","IMPL VOL","IVOL"]),
-    hv:(()=>{const i=col(["VOLATILITY_30D","VOLATILITY 30","VOL 30","30D VOL","30 DAY VOL"],NOVOL);return i>=0?i:col(["VOLATILITY"],[...NOVOL,"90","260","360","180"])})(),
-    hv90:col(["VOLATILITY_90D","VOLATILITY 90","VOL 90","90D VOL","90 DAY VOL"],NOVOL),
-    beta:col(["EQY_BETA","BETA"]),earn:col(["EXPECTED_REPORT_DT","EXP REP","REPORT DATE","REPORT","ANNOUNCE","EARN"],["SURPRISE","GROWTH","YIELD"]),
+    hv:(()=>{const i=col(["VOLATILITY_30D","VOLATILITY 30","VOLATIL 30","VOL 30","30D VOL","30 DAY VOL"],[...NOVOL,"Z "]);return i>=0?i:col(["VOLATILITY"],[...NOVOL,"90","260","360","180"])})(),
+    hv90:col(["VOLATILITY_90D","VOLATILITY 90","VOLATIL 90","VOL 90","90D VOL","90 DAY VOL"],[...NOVOL,"Z "]),
+    beta:col(["EQY_BETA","RAW BETA","BETA"],["Z "]),earn:col(["EXPECTED_REPORT_DT","EXP REP","REPORT DATE","REPORT","ANNOUNCE","EARN"],["SURPRISE","GROWTH","YIELD"]),
     si:col(["SI_PERCENT","SHORT INT","SHORT_INT","SI %"],["RATIO","DAYS"]),
-    tg:col(["BEST_TARGET_PRICE","TARGET PX:D-1","TARGET PRICE","TARGET PX","TARGET"],["Y-1"]),ind:col(["GICS_INDUSTRY_NAME","INDUSTRY","IND NAME"]),wls:col(["WLS"]),
+    tg:col(["BEST_TARGET_PRICE","TARGET PX:D-1","TARGET PRICE","TARGET PX","TARGET"],["Y-1"]),ind:col(["GICS_INDUSTRY_NAME","INDUSTRY","INDUSTRIA","IND NAME"]),wls:col(["WLS"]),
     rsi:col(["RSI"]),tv:col(["AVG D VAL","AVG DAILY VAL","AVERAGE DAILY VAL","VALUE TRADED","TURNOVER","TRADED VAL"],["AVAT"]),
-    rating:col(["BEST_ANALYST_RATING","ANALYST RATING","ANALYST_RATING","RATING"]),pais:col(["COUNTRY"]),
+    rating:col(["BEST_ANALYST_RATING","ANALYST RATING","ANALYST_RATING","RATING"]),pais:col(["COUNTRY_ISO","COUNTRY","PAIS"],["FULL","COMPLETO"]),
+    vavg:col(["VOLUME_AVG_30D","AVG VOL","VOLUME AVG"],["VAL"]),r1y:col(["CHG_PCT_1YR","%1YR","1YR","1 YEAR"],["VOL","NET"]),gr:col(["SALES_GROWTH","REV GR","REVENUE GR","SALES GR"],["Z "]),
+    exch:col(["EXCH CODE","EXCH_CODE","EXCHANGE CODE"]),scoreW:col(["SCORE"],["SMALL","Z "]),gapW:col(["GAP ESPERADO","GAP"]),proxyChg:col(["PROXY HOY"]),
     sent:col(["NEWS SENT","SENTIMENT"]),heat:col(["NEWS HEAT"]),hi52:col(["HIGH_52WEEK","52WK HIGH","52 WEEK HIGH","52W HIGH"])};
   if(c.t<0&&c.sec<0)c.t=0;
+  const hMc=c.mcap>=0?H[c.mcap]:"",mcMult=/BILLION|BILL/.test(hMc)?1e9:/MILLION|\(M\)|MM/.test(hMc)?1e6:1,pxUSD=/USD/.test(hMc)&&c.exch>=0;
   // EQS con "LCL": montos en moneda local (solo comparables en USD para EE.UU.)
   const local=rows.slice(0,hi).some(r=>(r||[]).some(x=>/^LCL$/i.test(String(x||"").trim())));
   const dm=c.earn>=0&&rows.slice(hi+1,hi+400).some(r=>{const m=String((r||[])[c.earn]||"").match(/^(\d{1,2})[\/-]\d{1,2}[\/-]\d{4}$/);return m&&+m[1]>12});
   if(!BBG)BBG={fecha:null,archivo:null,filas:{}};
   let n=0;
   rows.slice(hi+1).forEach(r=>{if(!r)return;let raw=c.t>=0?r[c.t]:null;if(!raw&&c.sec>=0)raw=r[c.sec];
-    if(/SECURIT|\(|^TICKER/i.test(String(raw||"")))return;
+    if(/SECURIT|\(|\[|^TICKER|PERFORMER|REMAINING/i.test(String(raw||"")))return;
     const t=claveTicker(raw);
     if(!t||t==="TICKER CORTO"||t==="TICKER"||/^#/.test(t))return;
     const g=k=>c[k]>=0?r[c[k]]:null,txt=v=>v!=null&&v!==""&&!/^#|N\/A/.test(String(v))?String(v):null;
     const prev=BBG.filas[t]||{},N=k=>aNum(g(k))??prev[k]??null;
     const f={...prev,px:N("px"),chg:N("chg"),r1m:N("r1m"),r3m:N("r3m"),mcap:N("mcap"),hv:N("hv"),hv90:N("hv90"),iv:N("iv"),beta:N("beta"),si:N("si"),rsi:N("rsi"),
-      tv:N("tv"),rating:N("rating"),sent:N("sent"),heat:N("heat"),hi52:N("hi52"),
+      tv:N("tv"),rating:N("rating"),sent:N("sent"),heat:N("heat"),hi52:N("hi52"),vavg:N("vavg"),r1y:N("r1y"),gr:N("gr"),scoreW:N("scoreW"),gapW:N("gapW"),proxyChg:N("proxyChg"),
       earn:aISO(g("earn"),dm)??prev.earn??null,target:aNum(g("tg"))??prev.target??null,ind:txt(g("ind"))??prev.ind??null,pais:txt(g("pais"))??prev.pais??null,
       nombre:txt(g("nom"))??prev.nombre??null,sec:txt(g("sec"))??prev.sec??(String(raw).toUpperCase().includes("EQUITY")?String(raw):`${t.includes(" ")?t:t+" US"} Equity`)};
     if(c.tv>=0)f.tvUSD=!t.includes(" "); // fuera de EE.UU. el monto suele venir en moneda local
+    const ex=txt(g("exch"));if(ex)f.exch=ex.trim().toUpperCase();
+    if(f.mcap!=null&&c.mcap>=0)f.mcapUSD=(pxUSD||/USD/.test(hMc)||!t.includes(" "))?f.mcap*mcMult:(f.mcapUSD??null);
+    if(f.vavg!=null&&f.px!=null&&(pxUSD||!t.includes(" ")))f.advUSD=f.vavg*f.px;
     const w=String(g("wls")||"").trim().toUpperCase();f.wls=w.startsWith("S")||w.startsWith("Y")?true:w.startsWith("N")?false:(prev.wls??null);
     BBG.filas[t]=f;n++});
   return n;
@@ -1297,7 +1305,7 @@ function terminarCarga(n,origen){
   if(!n)return;
   BBG.fecha=new Date().toISOString();BBG.archivo=origen;
   try{localStorage.setItem("gtc-bbg",JSON.stringify(BBG))}catch(e){toast("El archivo es muy grande para guardarlo: se usará solo hasta que cierres la página.")}
-  aplicarBBG();renderAll(false);
+  aplicarBBG();renderAll(false);marcarCambio();
 }
 async function cargarBBG(file){
   try{await cargarLib()}catch(e){toast("No se pudo cargar el lector de Excel. Revisa tu conexión.");return}
@@ -1339,9 +1347,11 @@ async function plantillaMias(){
   const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,"Datos");
   XLSX.writeFile(wb,"Mis_acciones_Bloomberg.xlsx");
 }
+function idxBBG(){const m={};(D?.acciones||[]).forEach(a=>{if(a.tkBBG)m[claveTicker(a.tkBBG)]=a.t});return m}
 function aplicarBBG(){
   if(!BBG||!D)return;
-  Object.entries(BBG.filas).forEach(([t,f])=>{
+  const ix=idxBBG();
+  Object.entries(BBG.filas).forEach(([t0,f])=>{const t=ix[t0]||t0;
     const mov=f.iv??f.hv??f.hv90??null;
     if(!byT[t]||byT[t].bbgOnly){byT[t]={t,nombre:f.nombre||t,tema:"Bloomberg",industria:f.ind,pais:f.pais,rank:"–",vol20:mov,earn:f.earn,enVentana:!!f.earn&&f.earn>=D.ventana.ini&&f.earn<=D.ventana.fin,
       betas:{ACWI:f.beta??1},grupo:"–",senales:[],noticias:[],hist:[],precio:f.px,bbgOnly:true}}
@@ -1352,15 +1362,20 @@ function aplicarBBG(){
 }
 
 /* ---------- RANKING con los datos de Bloomberg (todo se calcula aqui, en tu navegador) ---------- */
-let rkF=Object.assign({reg:"US",win:true,liq:true,n:30},load("gtc-rk")||{});
+let rkF=Object.assign({reg:"ALL",win:true,liq:true,cap:"ALL",mkt:"ALL",n:30},load("gtc-rk")||{});
 const PESOS_RK=[["mov",.35,"Cuánto se mueve (volatilidad)"],["r1m",.25,"Momentum: cuánto subió el último mes"],["si",.15,"Short interest (posible squeeze)"],["beta",.10,"Beta: amplifica al mercado"],["sent",.10,"Tono de las noticias"]];
 function rankingBBG(){
   const all=Object.entries(BBG?.filas||{}).map(([t,f])=>({t,f,us:!t.includes(" ")}));
   const ini=D.ventana.ini,fin=D.ventana.fin;
   let u=all.filter(x=>rkF.reg==="US"?x.us:true);
   u.forEach(x=>{const f=x.f;x.mov=f.iv??f.hv??f.hv90??null;x.r1m=f.r1m;x.si=f.si;x.beta=f.beta;x.sent=f.sent;x.rsi=f.rsi;
-    x.win=!!f.earn&&f.earn>=ini&&f.earn<=fin;x.liq=f.tvUSD?f.tv:null;x.up=f.target&&f.px?(f.target/f.px-1)*100:null});
+    x.win=!!f.earn&&f.earn>=ini&&f.earn<=fin;x.liq=f.tvUSD?f.tv:(f.advUSD??null);x.up=f.target&&f.px?(f.target/f.px-1)*100:null;
+    x.code=codigoBolsa(x.t,{bbg:f});x.est=estadoBolsa(x.code);x.hrs=x.est.fase==="abierta"?0:(BOLSAS[x.code]?proximaApertura(x.code).horas:null);
+    x.gap=f.gapW??(f.proxyChg!=null&&f.beta!=null?f.beta*f.proxyChg:null)});
   const base=u.length;
+  if(rkF.cap==="SMALL")u=u.filter(x=>x.f.mcapUSD==null||x.f.mcapUSD<=10e9);
+  if(rkF.mkt==="OPEN")u=u.filter(x=>x.est.fase==="abierta");
+  if(rkF.mkt==="NEXT")u=u.filter(x=>x.hrs!=null&&x.hrs<=12);
   if(rkF.win)u=u.filter(x=>x.win);
   if(rkF.liq)u=u.filter(x=>x.liq==null||x.liq>=20e6);
   const cob={};
@@ -1407,6 +1422,7 @@ function scatterRK(R){
 function filaRK(x,i,enC){const f=x.f,mx=4;const w=Math.max(4,Math.min(100,(x.score+1.5)/mx*100));
   return`<tr><td class="n faint">${i+1}</td><td>${tkBtn(x.t)}<span class="nm">${esc(f.nombre||"")}</span>${bolsaChip(x.t,byT[x.t]||{bbg:f})}</td>
     <td><span class="nm" style="max-width:190px;font-size:12px;color:var(--fg)">${esc(f.ind||"–")}</span></td>
+    <td class="n">${x.gap!=null&&x.est.fase!=="abierta"?pct(x.gap,1):'<span class="faint" title="Solo se calcula con la bolsa cerrada">–</span>'}</td>
     <td>${f.earn?`<span class="chip ${x.win?"good":""}">${fecha(f.earn)}</span>`:'<span class="faint">–</span>'}</td>
     <td class="n">${x.mov!=null?fmt(x.mov,0)+"%":'<span class="faint">–</span>'}</td><td class="n">${pct(x.r1m,1)}</td>
     <td class="n">${x.rsi!=null?`<span class="${x.rsi>75?"down":x.rsi<30?"faint":""}">${fmt(x.rsi,0)}</span>`:'<span class="faint">–</span>'}</td>
@@ -1420,7 +1436,7 @@ function renderBBG(){
   if(!D){el.innerHTML=emptyState();return}
   const enC=new Set(cart.items.map(i=>i.t));
   const subir=`<div class="card"><header><h2>Mi Bloomberg</h2><span class="muted" style="font-size:13px">${fs.length?`${fs.length.toLocaleString("es-CL")} acciones · cargadas ${new Date(BBG.fecha).toLocaleString("es-CL",{day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"})}`:"Todavía no cargas datos"}</span></header>
-    <p class="sub" style="margin:0">Sube el Excel del Terminal y la página arma sola el ranking y una cartera sugerida. Tus datos quedan <b>solo en este navegador</b>: no se suben a GitHub ni los ve tu equipo.</p>
+    <p class="sub" style="margin:0">Sube el Excel del Terminal y la página arma sola el ranking y una cartera sugerida. Se guardan en este navegador. Para que tu equipo los vea, usa el cuadro <b>Equipo</b> (se comparten cifrados con una clave).</p>
     <div class="bbg-grid">
       <div class="bbg-opt"><h3>1 · Subir el Excel</h3><p class="sub">La plantilla con fórmulas (después de que carguen) o un export de EQS. Lee todas las hojas.</p>
         <input type="file" id="bbgFile" accept=".xlsx,.xls,.csv" class="sr"><button class="btn primary" id="bbgLoad" type="button">Subir Excel</button></div>
@@ -1432,22 +1448,26 @@ function renderBBG(){
     ${fs.length?`<div class="bbg-opt" style="background:var(--brand-soft);border-color:transparent"><h3>Analizar estas acciones en la página "Mi lista Bloomberg"</h3><p class="sub">Hay dos páginas: <b>Radar general</b> (la de siempre, con acciones de Yahoo) y <b>Mi lista Bloomberg</b> (Resumen, grupos, contagio y tasas solo con tu lista). Para cambiar las acciones de "Mi lista", descarga <b>wls.txt</b> (solo nombres, sin datos de Bloomberg), súbelo a la carpeta principal de GitHub reemplazando el anterior y presiona Run workflow. El Radar general no cambia.</p>
       <button class="btn primary" id="bbgWls" type="button">Descargar wls.txt</button></div>
       <div><button class="btn small" id="bbgClear" type="button">Borrar mis datos de Bloomberg</button></div>`:""}</div>`;
-  if(!fs.length){el.innerHTML=subir+`<div class="empty"><h2>Cómo se usa</h2><ol class="sub" style="margin:0;padding-left:18px;display:flex;flex-direction:column;gap:6px;max-width:75ch">
+  if(!fs.length){el.innerHTML='<div data-eqbox></div>'+subir+`<div class="empty"><h2>Cómo se usa</h2><ol class="sub" style="margin:0;padding-left:18px;display:flex;flex-direction:column;gap:6px;max-width:75ch">
       <li>En el Terminal abre la plantilla con fórmulas (o exporta tu EQS filtrado por <b>WLS Index</b>).</li>
       <li>Espera que se llenen las celdas y guarda el archivo.</li>
       <li>Súbelo aquí con <b>Subir Excel</b>: aparecerá el ranking, el gráfico y una cartera de 5 sugerida.</li></ol></div>`;bindBBG();return}
   const R=rankingBBG(),n=R.u.length,falta=PESOS_RK.filter(([k])=>k!=="sent"&&!R.cob[k]).map(([,,d])=>d);
   const seg=(k,ops)=>`<div class="seg" role="group">${ops.map(([v,l])=>`<button type="button" data-rk="${k}" data-v="${v}" aria-selected="${String(rkF[k])===String(v)}">${l}</button>`).join("")}</div>`;
   const sumTop=R.top.length;
-  el.innerHTML=subir+`
+  el.innerHTML='<div data-eqbox></div>'+subir+`
   <div class="stats" id="rk-top">
     <div class="stat"><span class="label">Acciones cargadas</span><b>${R.total.toLocaleString("es-CL")}</b><span class="muted">${R.nUS} de EE.UU.</span></div>
-    <div class="stat"><span class="label">Pasan los filtros</span><b>${n.toLocaleString("es-CL")}</b><span class="muted">de ${R.base.toLocaleString("es-CL")} en ${rkF.reg==="US"?"EE.UU.":"todo el WLS"}</span></div>
+    <div class="stat"><span class="label">Pasan los filtros</span><b>${n.toLocaleString("es-CL")}</b><span class="muted">de ${R.base.toLocaleString("es-CL")} en ${rkF.reg==="US"?"EE.UU.":"todos los mercados"}</span></div>
     <div class="stat ${R.cob.mov?"":"warnS"}"><span class="label">Con volatilidad</span><b>${R.cob.mov.toLocaleString("es-CL")}</b><span class="muted">${R.cob.mov?"histórica o implícita":"se usa la beta en su lugar"}</span></div>
     <div class="stat ${R.cob.r1m?"":"warnS"}"><span class="label">Con momentum 1 mes</span><b>${R.cob.r1m.toLocaleString("es-CL")}</b><span class="muted">${R.cob.r1m?"cambio % del último mes":"falta CHG_PCT_1M"}</span></div>
   </div>
+  <div class="card" style="gap:8px"><header><h3>Bolsas ahora (hora Chile)</h3><span class="meta">Se actualiza cada minuto · no considera feriados</span></header>
+    <div style="display:flex;flex-wrap:wrap;gap:6px">${["US","CN","BZ","LN","GR","FP","SW","JP","KS","TT","HK","C1","IN","AU"].map(cd=>{const e=estadoBolsa(cd),b=BOLSAS[cd];return`<span class="chip ${e.fase==="abierta"?"good":e.fase==="pre"||e.fase==="pausa"?"warn":""}" title="${esc(e.txt)} · horario ${horarioChile(cd)}">${e.fase==="abierta"?"●":"○"} ${esc(b.n)} · ${esc(e.fase==="abierta"?"abierta":e.txt.replace(/^Cerrada · /,""))}</span>`}).join("")}</div></div>
   <div class="card" style="flex-direction:row;flex-wrap:wrap;align-items:center;gap:10px 18px">
-    <span class="label">Mostrar</span>${seg("reg",[["US","Solo EE.UU."],["ALL","Todo el WLS"]])}
+    <span class="label">Mostrar</span>${seg("reg",[["ALL","Todos los mercados"],["US","Solo EE.UU."]])}
+    ${seg("mkt",[["ALL","Abiertas y cerradas"],["OPEN","Abiertas ahora"],["NEXT","Abiertas o abren en < 12 h"]])}
+    ${seg("cap",[["ALL","Todos los tamaños"],["SMALL","Small/mid (≤ US$10.000M)"]])}
     ${seg("win",[["true","Reportan en el torneo"],["false","Todas"]])}
     ${seg("liq",[["true","Líquidas (> US$20M/día)"],["false","Sin filtro de liquidez"]])}
   </div>
@@ -1456,11 +1476,11 @@ function renderBBG(){
     <div class="stats">${R.top.map((x,i)=>`<div class="stat" style="gap:6px"><span class="label">#${i+1} · ${esc(x.f.ind||"")}</span>
       <b style="display:flex;align-items:center;gap:8px">${tkBtn(x.t)}<span class="mono" style="font-size:13px;color:var(--muted);font-weight:600">${fmt(x.score,1)} pts</span></b>
       <span class="muted" style="font-size:12px">${esc(x.f.nombre||"")}</span>
-      <span style="font-size:12px;display:flex;gap:6px;flex-wrap:wrap">${x.f.earn?`<span class="chip ${x.win?"good":""}">Reporta ${fecha(x.f.earn)}</span>`:""}${x.mov!=null?`<span class="chip">Vol ${fmt(x.mov,0)}%</span>`:x.beta!=null?`<span class="chip">Beta ${fmt(x.beta,1)}</span>`:""}${x.r1m!=null?`<span class="chip ${x.r1m>=0?"good":"bad"}">1M ${sgn(x.r1m,0)}</span>`:""}</span></div>`).join("")}</div>
+      <span style="font-size:12px;display:flex;gap:6px;flex-wrap:wrap">${x.f.earn?`<span class="chip ${x.win?"good":""}">Reporta ${fecha(x.f.earn)}</span>`:""}${x.mov!=null?`<span class="chip">Vol ${fmt(x.mov,0)}%</span>`:x.beta!=null?`<span class="chip">Beta ${fmt(x.beta,1)}</span>`:""}${x.r1m!=null?`<span class="chip ${x.r1m>=0?"good":"bad"}">1M ${sgn(x.r1m,0)}</span>`:""}${bolsaChip(x.t,{bbg:x.f},true)}${x.gap!=null&&x.est.fase!=="abierta"?`<span class="chip ${x.gap>=0?"good":"bad"}" title="Gap esperado al abrir">Gap ${sgn(x.gap,1)}</span>`:""}</span></div>`).join("")}</div>
     <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center"><button class="btn primary" id="rkUsar" type="button">Usar estas 5 como mi cartera y simular</button><span class="faint" style="font-size:12px">Pone US$200.000 en cada una y te lleva a Cartera → Monte Carlo.</span></div></div>`:""}
   ${scatterRK(R)}
   <div class="card" style="padding:0;gap:0"><header style="padding:14px 16px"><h3>Ranking para el torneo</h3><span class="meta">${n?`Top ${Math.min(rkF.n,n)} de ${n.toLocaleString("es-CL")}`:"Ninguna acción pasa los filtros"}</span></header>
-  <div class="tablebox" style="border:0;border-top:1px solid var(--line);border-radius:0 0 12px 12px"><table><thead><tr><th class="n">#</th><th>Acción</th><th>Industria</th><th>Resultados</th><th class="n">Volatilidad</th><th class="n">1 mes</th><th class="n">RSI</th><th class="n">Beta</th><th class="n">Short</th><th class="n">Upside</th><th class="n">Noticias</th><th>Puntaje</th><th><span class="sr">Cartera</span></th></tr></thead>
+  <div class="tablebox" style="border:0;border-top:1px solid var(--line);border-radius:0 0 12px 12px"><table><thead><tr><th class="n">#</th><th>Acción · bolsa</th><th>Industria</th><th class="n" title="Beta × movimiento de hoy del ETF de su país (solo con la bolsa cerrada)">Gap al abrir</th><th>Resultados</th><th class="n">Volatilidad</th><th class="n">1 mes</th><th class="n">RSI</th><th class="n">Beta</th><th class="n">Short</th><th class="n">Upside</th><th class="n">Noticias</th><th>Puntaje</th><th><span class="sr">Cartera</span></th></tr></thead>
   <tbody>${R.u.slice(0,rkF.n).map((x,i)=>filaRK(x,i,enC)).join("")}</tbody></table></div>
   ${n>rkF.n?`<div style="padding:12px 16px"><button class="btn small" id="rkMas" type="button">Ver ${Math.min(50,n-rkF.n)} más</button></div>`:""}</div>
   <details class="how"><summary>¿Cómo se calcula el puntaje?</summary><div class="sub" style="max-width:80ch;display:flex;flex-direction:column;gap:6px;margin-top:8px">
@@ -1480,7 +1500,7 @@ function bindBBG(R){
     const ts=Object.entries(BBG.filas).filter(([t,f])=>!t.includes(" ")&&f.wls!==false).sort((a,b)=>((b[1].earn>=ini&&b[1].earn<=fin)-(a[1].earn>=ini&&a[1].earn<=fin))||a[0].localeCompare(b[0])).map(([t])=>t);
     const txt="# Acciones de EE.UU. de mi lista de Bloomberg (generado desde la pagina "+new Date().toISOString().slice(0,10)+").\n# Solo nombres: los datos de Bloomberg NO se suben a GitHub.\n"+ts.join("\n")+"\n";
     const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([txt],{type:"text/plain"}));a.download="wls.txt";document.body.appendChild(a);a.click();a.remove();toast(`wls.txt con ${ts.length} acciones descargado`)};
-  const c=$("#bbgClear");if(c)c.onclick=()=>{if(!confirm("¿Borrar todos tus datos de Bloomberg de este navegador?"))return;BBG=null;try{localStorage.removeItem("gtc-bbg")}catch(e){};Object.keys(byT).forEach(k=>{if(byT[k].bbgOnly)delete byT[k];else delete byT[k].bbg});renderAll(false);toast("Tus datos de Bloomberg quedaron borrados")};
+  const c=$("#bbgClear");if(c)c.onclick=()=>{if(!confirm("¿Borrar todos tus datos de Bloomberg de este navegador?"))return;BBG=null;try{localStorage.removeItem("gtc-bbg")}catch(e){};marcarCambio();Object.keys(byT).forEach(k=>{if(byT[k].bbgOnly)delete byT[k];else delete byT[k].bbg});renderAll(false);toast("Tus datos de Bloomberg quedaron borrados")};
   el.querySelectorAll("[data-rk]").forEach(x=>x.onclick=()=>{const k=x.dataset.rk,v=x.dataset.v;rkF[k]=v==="true"?true:v==="false"?false:v;rkF.n=30;store("gtc-rk",rkF);renderBBG()});
   const m=$("#rkMas");if(m)m.onclick=()=>{rkF.n+=50;renderBBG()};
   const us=$("#rkUsar");if(us&&R)us.onclick=()=>{
@@ -1593,10 +1613,204 @@ function buscarMejor(){
   setTimeout(paso,30);
 }
 
+/* ---------- PORTAFOLIO REAL (posiciones de TMSG; se guarda solo en este navegador) ---------- */
+let PORT=load("gtc-port")||{snaps:[]};
+const ORDEN_TMSG=["TICKER","IDEA STATUS","IDEA SIDE","LAST PRICE","GROSS EXPOSURE","P&L - OTD","RELATIVE P&L - OTD","ABSOLUTE TOTAL RETURN","RELATIVE TOTAL RETURN","LAST UPDATE TIME","DES"];
+function numP(v,dinero){
+  if(v==null||v==="")return null;if(typeof v==="number")return isFinite(v)?v:null;
+  let s=String(v).trim();if(/^#|N\/A|^-+$/i.test(s))return null;
+  const neg=/^\(.*\)$/.test(s)||/^-|−/.test(s);s=s.replace(/[()$%\s−+-]|USD/g,"");
+  const c=s.lastIndexOf(","),p=s.lastIndexOf(".");
+  if(c>=0&&p>=0){s=c>p?s.replace(/\./g,"").replace(",","."):s.replace(/,/g,"")}
+  else if(c>=0){s=/^\d{1,3}(,\d{3})+$/.test(s)&&dinero!==false?s.replace(/,/g,""):s.replace(",",".")}
+  else if(p>=0&&dinero&&/^\d{1,3}(\.\d{3})+$/.test(s))s=s.replace(/\./g,"");
+  const x=parseFloat(s);return isFinite(x)?(neg?-x:x):null}
+function leerPosiciones(rows,crudo){
+  rows=rows.filter(r=>r&&r.some(x=>x!=null&&String(x).trim()!==""));
+  let hi=rows.slice(0,15).findIndex(r=>r.some(x=>/^TICKER$/i.test(String(x||"").trim()))&&r.some(x=>/GROSS|EXPOSURE|P&L|RETURN/i.test(String(x||""))));
+  const H=hi>=0?rows[hi].map(h=>String(h||"").toUpperCase().replace(/\s+/g," ").trim()):ORDEN_TMSG;
+  const col=(inc,exc=[])=>{for(const x of inc){const i=H.findIndex(h=>h.includes(x)&&!exc.some(e=>h.includes(e)));if(i>=0)return i}return -1};
+  const c={t:col(["TICKER"]),st:col(["STATUS"]),side:col(["SIDE"]),px:col(["LAST PRICE","PRICE"]),gross:col(["GROSS","EXPOSURE","MARKET VAL"]),
+    pnl:col(["P&L - OTD","P&L OTD","P&L"],["RELATIVE","REL "]),rpnl:col(["RELATIVE P&L","REL P&L"]),abs:col(["ABSOLUTE TOTAL","ABS TOTAL","ABSOLUTE"]),
+    rel:col(["RELATIVE TOTAL","REL TOTAL"]),hora:col(["UPDATE","TIME"]),des:col(["DES","NAME"],["UPDATE"])};
+  const pos=[];
+  rows.slice(hi+1).forEach(r=>{const g=k=>c[k]>=0?r[c[k]]:null;const raw=String(g("t")||"").trim();
+    if(!raw||/^TICKER$|^TOTAL|CASH|^USD$/i.test(raw))return;const k=claveTicker(raw);if(!k)return;
+    const pc=k2=>{const v=g(k2);if(v==null||v==="")return null;if(typeof v==="number")return crudo&&Math.abs(v)<5?v*100:v;return numP(v,false)};
+    const gross=numP(g("gross"),true);if(gross==null)return;
+    pos.push({k,raw,st:String(g("st")||"").trim(),side:String(g("side")||"").trim(),px:numP(g("px"),false),gross,pnl:numP(g("pnl"),true),rpnl:numP(g("rpnl"),true),
+      abs:pc("abs"),rel:pc("rel"),hora:String(g("hora")||"").trim(),des:String(g("des")||"").trim()})});
+  return pos}
+function guardarSnap(pos,origen){
+  if(!pos.length){toast("No encontré posiciones. Copia la tabla de TMSG incluyendo la fila de títulos (Ticker, Gross Exposure…).");return}
+  const ahora=new Date().toISOString(),ult=PORT.snaps[PORT.snaps.length-1];
+  if(ult&&Date.now()-new Date(ult.fecha)<20*6e4)PORT.snaps.pop(); // la misma carga repetida reemplaza la anterior
+  PORT.snaps.push({fecha:ahora,origen,pos});PORT.snaps=PORT.snaps.slice(-300);store("gtc-port",PORT);marcarCambio();
+  renderPort();toast(`Portafolio: ${pos.length} posiciones guardadas`)}
+async function cargarPortArchivo(file){
+  try{await cargarLib()}catch(e){toast("No se pudo cargar el lector de Excel.");return}
+  let wb;try{wb=XLSX.read(await file.arrayBuffer(),{cellDates:true})}catch(e){toast("No se pudo leer el archivo.");return}
+  let pos=[];wb.SheetNames.some(nm=>{pos=leerPosiciones(XLSX.utils.sheet_to_json(wb.Sheets[nm],{header:1,raw:false,defval:null}),false);return pos.length});
+  guardarSnap(pos,file.name)}
+function pegarPort(tx){const L=String(tx||"").replace(/\r/g,"").split("\n").filter(l=>l.trim());if(!L.length){toast("Pega primero la tabla copiada de TMSG.");return}
+  const sep=L[0].includes("\t")?"\t":L[0].includes(";")?";":",";guardarSnap(leerPosiciones(L.map(l=>l.split(sep).map(x=>x.trim())),false),"Pegado")}
+function radarDe(k){const ix=idxBBG();const t=ix[k]||k;return byT[t]?t:(byT[k.split(" ")[0]]&&!k.includes(" ")?k.split(" ")[0]:null)}
+function statsSnap(s){const P=s.pos;
+  const gross=P.reduce((a,p)=>a+p.gross,0),costo=P.reduce((a,p)=>a+(p.abs!=null?p.gross/(1+p.abs/100):p.gross),0);
+  const pnlTot=gross-costo,relTot=P.reduce((a,p)=>a+(p.rel!=null?(p.abs!=null?p.gross/(1+p.abs/100):p.gross)*p.rel/100:0),0);
+  const sum=k=>P.some(p=>p[k]!=null)?P.reduce((a,p)=>a+(p[k]||0),0):null;
+  return{gross,costo,caja:CAPITAL-costo,pnlTot,relTot,ret:100*pnlTot/CAPITAL,retRel:100*relTot/CAPITAL,pnl:sum("pnl"),rpnl:sum("rpnl"),n:P.length}}
+function lineaHist(snaps){
+  const pts=snaps.map(s=>({f:new Date(s.fecha),...statsSnap(s)}));if(pts.length<2)return`<p class="muted" style="margin:0">El gráfico aparece cuando cargues las posiciones al menos dos veces (idealmente una vez al día, al cierre de EE.UU.).</p>`;
+  const W=640,H=180,pad=34,xs=pts.map(p=>+p.f),x0=Math.min(...xs),x1=Math.max(...xs)||x0+1,vs=pts.flatMap(p=>[p.ret,p.retRel,0]),y0=Math.min(...vs),y1=Math.max(...vs),dy=(y1-y0)||1;
+  const X=v=>pad+(W-pad-8)*(v-x0)/((x1-x0)||1),Y=v=>8+(H-30)*(1-(v-y0)/dy),path=k=>pts.map((p,i)=>(i?"L":"M")+X(+p.f).toFixed(1)+" "+Y(p[k]).toFixed(1)).join(" ");
+  return`<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto" role="img" aria-label="Evolución de la rentabilidad del portafolio">
+    <line x1="${pad}" x2="${W-8}" y1="${Y(0)}" y2="${Y(0)}" stroke="var(--line)"/><text x="${pad-4}" y="${Y(0)+4}" text-anchor="end" font-size="10" fill="var(--muted)">0%</text>
+    ${Y(0)-Y(y1)>14?`<text x="${pad-4}" y="${Y(y1)+8}" text-anchor="end" font-size="10" fill="var(--muted)">${sgn(y1,1)}</text>`:""}${Y(y0)-Y(0)>14?`<text x="${pad-4}" y="${Y(y0)}" text-anchor="end" font-size="10" fill="var(--muted)">${sgn(y0,1)}</text>`:""}
+    <path d="${path("ret")}" fill="none" stroke="var(--accent,#2f6fdf)" stroke-width="2"/><path d="${path("retRel")}" fill="none" stroke="var(--warn)" stroke-width="2" stroke-dasharray="5 3"/>
+    ${pts.map(p=>`<circle cx="${X(+p.f)}" cy="${Y(p.ret)}" r="2.5" fill="var(--accent,#2f6fdf)"><title>${p.f.toLocaleString("es-CL")} · ${sgn(p.ret,2)} (vs WLS ${sgn(p.retRel,2)})</title></circle>`).join("")}
+    <text x="${pad}" y="${H-4}" font-size="10" fill="var(--muted)">${pts[0].f.toLocaleDateString("es-CL")}</text><text x="${W-8}" y="${H-4}" text-anchor="end" font-size="10" fill="var(--muted)">${pts[pts.length-1].f.toLocaleDateString("es-CL")}</text></svg>
+    <div class="blegend"><span><i style="display:inline-block;width:14px;height:2px;background:var(--accent,#2f6fdf);vertical-align:middle"></i> Rentabilidad estimada del fondo</span><span><i style="display:inline-block;width:14px;height:0;border-top:2px dashed var(--warn);vertical-align:middle"></i> Contra el índice WLS (lo que define el ranking)</span></div>`}
+function renderPort(){
+  const el=$("#tab-port");if(!el)return;const cnt=$("#portCount");const s=PORT.snaps[PORT.snaps.length-1];if(cnt)cnt.textContent=s?s.pos.length:0;
+  const carga=`<div class="card"><header><h2>${s?"Actualizar posiciones":"Carga tus posiciones de TMSG"}</h2>${s?`<span class="muted" style="font-size:12px">Última carga: ${new Date(s.fecha).toLocaleString("es-CL",{dateStyle:"medium",timeStyle:"short"})} · ${PORT.snaps.length} carga${PORT.snaps.length===1?"":"s"} guardada${PORT.snaps.length===1?"":"s"}</span>`:""}</header>
+    <p class="muted" style="margin:0">En Bloomberg abre <b>TMSG</b> → tu portafolio. Selecciona toda la tabla (desde el título <b>Ticker</b> hasta la última acción), cópiala con <b>Ctrl+C</b> y pégala aquí. También sirve exportarla a Excel y subir el archivo. Se guardan en este navegador y, si estás conectado al <b>Equipo</b>, se comparten cifrados con tu grupo.</p>
+    <textarea id="portPaste" rows="${s?3:6}" placeholder="Ticker	Idea Status	Idea Side	Last Price	Gross Exposure	P&L - OTD	…"></textarea>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"><button class="btn primary" id="portPegar" type="button">Guardar posiciones</button>
+      <label class="btn" style="cursor:pointer">Subir Excel<input type="file" id="portFile" accept=".xlsx,.xls,.csv" hidden></label>
+      ${s?`<button class="btn small" id="portUndo" type="button">Borrar última carga</button><button class="btn small" id="portClear" type="button">Borrar historial</button>`:""}</div></div>`;
+  const eqb='<div data-eqbox></div>';if(!s){el.innerHTML=eqb+carga;renderEquipo();bindPort();return}
+  const st=statsSnap(s),P=[...s.pos].sort((a,b)=>b.gross-a.gross);
+  const prev=PORT.snaps.length>1?statsSnap(PORT.snaps[PORT.snaps.length-2]):null;
+  const ali=[];
+  if(st.caja>50000)ali.push(["b",`Hay cerca de ${usd(st.caja)} sin invertir (${fmt(100*st.caja/CAPITAL,0)}% del fondo). El ranking compara con el WLS: si el índice sube, la caja ociosa los hace perder posiciones. Úsenla en las mejores ideas del radar.`]);
+  const chicas=P.filter(p=>p.gross<20000);if(chicas.length)ali.push(["w",`${chicas.length} posiciones pesan menos de 2% del fondo (${chicas.map(p=>p.k).join(", ")}). Aunque una suba 20%, aporta menos de 0,4% al total. Conviene concentrar en menos acciones con más convicción.`]);
+  P.filter(p=>p.gross>MAXPOS).forEach(p=>ali.push(["b",`${p.k} vale ${usd(p.gross)}: supera el máximo de ${usd(MAXPOS)} por acción.`]));
+  P.filter(p=>p.gross>MAXPOS*0.9&&p.gross<=MAXPOS).forEach(p=>ali.push(["w",`${p.k} está cerca del máximo (${usd(p.gross)} de ${usd(MAXPOS)}). No le agreguen más.`]));
+  P.filter(p=>p.st&&!/^OPEN$/i.test(p.st)).forEach(p=>ali.push(["w",`${p.k} figura como "${p.st}": la orden aún no está completa. Revisen en TMSG que se haya ejecutado.`]));
+  P.filter(p=>p.side&&!/LONG|BUY/i.test(p.side)).forEach(p=>ali.push(["b",`${p.k} aparece como "${p.side}". En el desafío solo se permiten compras (long).`]));
+  P.filter(p=>p.rel!=null&&p.rel<=-8).forEach(p=>ali.push(["w",`${p.k} va ${sgn(p.rel)} contra el WLS. Revisen si la tesis sigue en pie o si conviene rotar a algo con mejor momentum.`]));
+  P.forEach(p=>{const t=radarDe(p.k),a=t&&byT[t];if(a&&a.earn&&a.diasEarn!=null&&a.diasEarn>=0&&a.diasEarn<=5)ali.push(["i",`${p.k} reporta resultados ${a.diasEarn===0?"hoy":a.diasEarn===1?"mañana":"el "+fecha(a.earn)}. Decidan antes si mantienen el tamaño de la posición.`])});
+  const fil=P.map(p=>{const t=radarDe(p.k),a=t?byT[t]:{bolsaBBG:p.k.includes(" ")?p.k.split(" ")[1]:null},f=a&&a.bbg,gap=f?(f.gapW??(f.proxyChg!=null&&f.beta!=null?f.beta*f.proxyChg:null)):null,e=estadoBolsa(codigoBolsa(p.k,a));
+    return`<tr><td>${t?tkBtn(t):`<b>${esc(p.k)}</b>`}<span class="nm">${esc(p.des||a?.nombre||"")}</span>${bolsaChip(p.k,a)}</td>
+      <td class="n">${fmt(p.px,2)}</td><td class="n">${usd(p.gross)}</td><td class="n">${fmt(100*p.gross/CAPITAL,1)}%</td>
+      <td class="n">${p.pnl==null?"–":`<span class="${p.pnl>=0?"up":"down"}">${p.pnl>=0?"+":"−"}${usd(Math.abs(p.pnl))}</span>`}</td>
+      <td class="n">${p.rpnl==null?"–":`<span class="${p.rpnl>=0?"up":"down"}">${p.rpnl>=0?"+":"−"}${usd(Math.abs(p.rpnl))}</span>`}</td>
+      <td class="n">${pct(p.abs,2)}</td><td class="n"><b>${pct(p.rel,2)}</b></td>
+      <td class="n">${gap!=null&&e.fase!=="abierta"?pct(gap,1):'<span class="faint">–</span>'}</td>
+      <td>${a&&a.earn?`<span class="chip ${a.enVentana?"good":""}">${fecha(a.earn)}</span>`:"–"}</td><td>${a&&a.momentum?momChip(a.momentum):"–"}</td></tr>`}).join("");
+  const mx=Math.max(1,...P.map(p=>Math.abs(p.rel||0)));
+  const barras=[...P].filter(p=>p.rel!=null).sort((a,b)=>b.rel-a.rel).map(p=>`<div style="display:grid;grid-template-columns:110px 1fr 64px;gap:8px;align-items:center;font-size:12.5px"><span class="mono" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(p.k)}</span>
+    <div style="position:relative;height:12px;background:var(--sunk);border-radius:3px"><span style="position:absolute;top:0;bottom:0;left:50%;width:1px;background:var(--line)"></span><span style="position:absolute;top:1px;bottom:1px;border-radius:2px;background:${p.rel>=0?"var(--up)":"var(--down)"};${p.rel>=0?`left:50%`:`right:50%`};width:${50*Math.abs(p.rel)/mx}%"></span></div><span class="n">${pct(p.rel,1)}</span></div>`).join("");
+  const dlt=(v,k)=>prev&&v!=null&&prev[k]!=null?`<span class="muted">vs carga anterior ${sgn(v-prev[k],2)}</span>`:"";
+  el.innerHTML=`<div class="stats">
+    <div class="stat"><span class="label">Valor en acciones</span><b>${usd(st.gross)}</b><span class="muted">${st.n} posiciones · ${fmt(100*st.gross/CAPITAL,0)}% del fondo</span></div>
+    <div class="stat ${st.caja>50000?"warnS":""}"><span class="label">Caja estimada</span><b>${usd(st.caja)}</b><span class="muted">${fmt(100*st.caja/CAPITAL,0)}% sin invertir</span></div>
+    <div class="stat"><span class="label">Resultado de hoy</span><b class="${(st.pnl||0)>=0?"up":"down"}">${st.pnl==null?"–":(st.pnl>=0?"+":"−")+usd(Math.abs(st.pnl))}</b><span class="muted">vs WLS ${st.rpnl==null?"–":(st.rpnl>=0?"+":"−")+usd(Math.abs(st.rpnl))}</span></div>
+    <div class="stat"><span class="label">Rentabilidad del fondo</span><b class="${st.ret>=0?"up":"down"}">${sgn(st.ret,2)}</b><span class="muted">${st.pnlTot>=0?"+":"−"}${usd(Math.abs(st.pnlTot))}</span>${dlt(st.ret,"ret")}</div>
+    <div class="stat ${st.retRel<0?"badS":""}"><span class="label">Contra el índice WLS</span><b class="${st.retRel>=0?"up":"down"}">${sgn(st.retRel,2)}</b><span class="muted">esto es lo que define el ranking</span>${dlt(st.retRel,"retRel")}</div></div>
+  ${ali.length?`<div class="card"><header><h2>Qué revisar ahora</h2></header><div class="rules">${ali.map(([c,t])=>`<div class="rule"><span class="dot ${c==="i"?"":c}"></span><span>${esc(t)}</span></div>`).join("")}</div></div>`:""}
+  <div class="tablebox"><table><thead><tr><th>Acción · bolsa</th><th class="n">Precio</th><th class="n">Monto US$</th><th class="n">% fondo</th><th class="n">Hoy US$</th><th class="n">Hoy vs WLS</th><th class="n">Total</th><th class="n">Total vs WLS</th><th class="n" title="Beta × movimiento del ETF de su país, solo si la bolsa está cerrada (requiere Mi Bloomberg)">Gap al abrir</th><th>Resultados</th><th>Momentum</th></tr></thead><tbody>${fil}</tbody></table></div>
+  <div class="two"><div class="card"><header><h2>Cada posición contra el WLS</h2></header><div style="display:flex;flex-direction:column;gap:6px">${barras||'<p class="muted">Sin datos de retorno relativo.</p>'}</div></div>
+    <div class="card"><header><h2>Evolución del portafolio</h2></header>${lineaHist(PORT.snaps)}</div></div>
+  <div class="card" style="flex-direction:row;align-items:center;gap:12px;flex-wrap:wrap"><span style="flex:1;min-width:220px">Pasa estas posiciones a <b>Cartera</b> para ver correlación, volatilidad y la simulación Monte Carlo del portafolio real.</span><button class="btn" id="portACartera" type="button">Usar en Cartera</button></div>
+  <p class="faint" style="font-size:12px;margin:0">La caja y la rentabilidad del fondo se estiman con el costo de cada posición abierta (monto ÷ (1 + retorno total)) sobre 1.000.000 USD; no incluyen ventas ya cerradas. Para el número oficial, mira el ranking del desafío.</p>`+eqb+carga;
+  renderEquipo();bindPort()}
+function bindPort(){
+  const b=$("#portPegar");if(b)b.onclick=()=>pegarPort($("#portPaste").value);
+  const f=$("#portFile");if(f)f.onchange=()=>{if(f.files[0])cargarPortArchivo(f.files[0]);f.value=""};
+  const u=$("#portUndo");if(u)u.onclick=()=>{if(!confirm("¿Borrar la última carga de posiciones?"))return;PORT.snaps.pop();store("gtc-port",PORT);marcarCambio();renderPort()};
+  const c=$("#portClear");if(c)c.onclick=()=>{if(!confirm("¿Borrar todo el historial del portafolio de este navegador?"))return;PORT={snaps:[]};store("gtc-port",PORT);marcarCambio();renderPort()};
+  const k=$("#portACartera");if(k)k.onclick=()=>{const s=PORT.snaps[PORT.snaps.length-1];if(!s||!D)return;
+    cart.items=s.pos.map(p=>{let t=radarDe(p.k);if(!t){t=p.k;byT[t]=byT[t]||{t,nombre:p.des||t,tema:"Portafolio",rank:"–",vol20:null,betas:{ACWI:1},grupo:"–",senales:[],noticias:[],hist:[],precio:p.px,bbgOnly:true}}
+      return{t,usd:Math.round(p.gross),wls:true}});store("gtc-cart",cart);renderAll(false);setTab("cartera");toast("Cartera reemplazada por tus posiciones reales")};
+}
+
+/* ---------- EQUIPO: comparte Bloomberg + Portafolio cifrados (AES) en el repositorio ---------- */
+const REPO=(()=>{const m=location.hostname.match(/^([^.]+)\.github\.io$/),r=location.pathname.split("/").filter(Boolean)[0];return m&&r?{o:m[1],r}:{o:"antoseitz",r:"radar-gtc"}})();
+const EQ_FILE="equipo_datos.json";
+let EQ=Object.assign({clave:null,token:null,rama:null,ult:null,mod:0,estado:null,autor:""},load("gtc-eq")||{});
+const guardaEQ=()=>store("gtc-eq",EQ);
+const b64=u=>{const a=new Uint8Array(u);let s="";for(let i=0;i<a.length;i+=0x8000)s+=String.fromCharCode.apply(null,a.subarray(i,i+0x8000));return btoa(s)};
+const unb64=s=>Uint8Array.from(atob(s),c=>c.charCodeAt(0));
+async function claveAES(pw,salt){const k=await crypto.subtle.importKey("raw",new TextEncoder().encode(pw),"PBKDF2",false,["deriveKey"]);
+  return crypto.subtle.deriveKey({name:"PBKDF2",salt,iterations:250000,hash:"SHA-256"},k,{name:"AES-GCM",length:256},false,["encrypt","decrypt"])}
+async function cifrar(obj,pw){const salt=crypto.getRandomValues(new Uint8Array(16)),iv=crypto.getRandomValues(new Uint8Array(12));let b=new TextEncoder().encode(JSON.stringify(obj)),z=0;
+  if(window.CompressionStream){b=new Uint8Array(await new Response(new Blob([b]).stream().pipeThrough(new CompressionStream("gzip"))).arrayBuffer());z=1}
+  const ct=await crypto.subtle.encrypt({name:"AES-GCM",iv},await claveAES(pw,salt),b);return{v:1,z,fecha:new Date().toISOString(),salt:b64(salt),iv:b64(iv),ct:b64(ct)}}
+async function descifrar(f,pw){const pt=await crypto.subtle.decrypt({name:"AES-GCM",iv:unb64(f.iv)},await claveAES(pw,unb64(f.salt)),unb64(f.ct));
+  const tx=f.z?await new Response(new Blob([pt]).stream().pipeThrough(new DecompressionStream("gzip"))).text():new TextDecoder().decode(pt);return JSON.parse(tx)}
+async function bajarEquipo(){
+  for(const rama of [EQ.rama||"main",EQ.rama?null:"master"].filter(Boolean)){
+    try{const r=await fetch(`https://raw.githubusercontent.com/${REPO.o}/${REPO.r}/${rama}/${EQ_FILE}?t=${Date.now()}`,{cache:"no-store"});if(r.ok){EQ.rama=rama;return await r.json()}}catch(e){}}
+  return null}
+let sincronizando=false;
+async function sincronizarEquipo(aviso){
+  if(!EQ.clave||sincronizando||!window.crypto?.subtle)return;sincronizando=true;
+  try{const f=await bajarEquipo();
+    if(!f){EQ.estado="vacio";guardaEQ();renderEquipo();return}
+    EQ.remoto=f.fecha;
+    if(f.fecha<=(EQ.mod||0)&&EQ.estado==="ok"){guardaEQ();renderEquipo();return} // ya lo tengo o tengo cambios más nuevos
+    let d;try{d=await descifrar(f,EQ.clave)}catch(e){EQ.estado="clave";guardaEQ();renderEquipo();if(aviso)toast("La clave no coincide con la del equipo");return}
+    if(f.fecha>(EQ.mod||"")){
+      BBG=d.bbg||null;try{BBG?localStorage.setItem("gtc-bbg",JSON.stringify(BBG)):localStorage.removeItem("gtc-bbg")}catch(e){}
+      Object.keys(byT).forEach(k=>{if(byT[k].bbgOnly&&byT[k].tema!=="Portafolio")delete byT[k];else delete byT[k].bbg});
+      PORT=d.port||{snaps:[]};store("gtc-port",PORT);EQ.mod=f.fecha;aplicarBBG();
+      if(aviso)toast(`Datos del equipo cargados${d.autor?" (publicó "+d.autor+")":""}`)}
+    EQ.estado="ok";EQ.ult=f.fecha;EQ.autorRemoto=d.autor||"";guardaEQ();renderAll(false);
+  }finally{sincronizando=false}}
+function marcarCambio(){EQ.mod=new Date().toISOString();guardaEQ();if(EQ.clave&&EQ.token){clearTimeout(marcarCambio.h);marcarCambio.h=setTimeout(()=>publicarEquipo(true),2500)}renderEquipo()}
+async function publicarEquipo(auto){
+  if(!EQ.clave){toast("Primero escribe la clave del equipo");return}
+  const f=await cifrar({autor:EQ.autor||"",bbg:BBG,port:PORT},EQ.clave),txt=JSON.stringify(f);
+  if(!EQ.token){const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([txt],{type:"application/json"}));a.download=EQ_FILE;a.click();
+    toast("Descargué equipo_datos.json: súbelo a la página principal del repositorio en GitHub");return}
+  const api=`https://api.github.com/repos/${REPO.o}/${REPO.r}/contents/${EQ_FILE}`,h={Authorization:"Bearer "+EQ.token,Accept:"application/vnd.github+json"};
+  try{const g=await fetch(api+(EQ.rama?"?ref="+EQ.rama:""),{headers:h,cache:"no-store"});
+    if(g.status===401||g.status===403){toast("GitHub rechazó el token. Revisa que tenga permiso Contents: Read and write.");return}
+    const sha=g.ok?(await g.json()).sha:undefined;
+    const r=await fetch(api,{method:"PUT",headers:h,body:JSON.stringify({message:"Datos del equipo (cifrados)",content:btoa(txt),sha,...(EQ.rama?{branch:EQ.rama}:{})})});
+    if(!r.ok){toast("No se pudo publicar ("+r.status+"). Revisa el token.");return}
+    EQ.mod=f.fecha;EQ.ult=f.fecha;EQ.remoto=f.fecha;EQ.estado="ok";EQ.autorRemoto=EQ.autor;guardaEQ();renderEquipo();
+    toast(auto?"Compartido con el equipo":"Publicado: tu equipo lo verá en 1 a 5 minutos")}catch(e){toast("Sin conexión con GitHub; intenta de nuevo")}}
+const fh=s=>s?new Date(s).toLocaleString("es-CL",{day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"}):"–";
+function equipoHTML(){
+  if(!window.crypto?.subtle)return"";
+  if(!EQ.clave)return`<div class="card eqc"><header><h2>Compartir con el equipo</h2><span class="chip">Sin conectar</span></header>
+    <p class="sub" style="margin:0">Escribe la clave del equipo para ver las posiciones y los datos de Bloomberg que cargan tus compañeros. Se guardan <b>cifrados</b> en GitHub: sin la clave nadie más puede leerlos. Si eres el primero, inventa una clave y compártela solo con tu grupo.</p>
+    <div style="display:flex;gap:8px;flex-wrap:wrap"><input type="password" data-eqi="clave" placeholder="Clave del equipo" autocomplete="off" style="flex:1;min-width:180px;max-width:280px"><input data-eqi="autor" placeholder="Tu nombre (opcional)" style="flex:1;min-width:140px;max-width:200px"><button class="btn primary" data-eqa="entrar" type="button">Entrar</button></div></div>`;
+  const est=EQ.estado==="clave"?`<span class="chip bad">Clave incorrecta</span>`:EQ.estado==="vacio"?`<span class="chip">Nadie ha publicado aún</span>`:EQ.estado==="ok"?`<span class="chip good">Conectado</span>`:`<span class="chip">Conectando…</span>`;
+  const pend=EQ.mod&&EQ.remoto!==EQ.mod&&(!EQ.remoto||EQ.mod>EQ.remoto);
+  return`<div class="card eqc"><header><h2>Equipo</h2>${est}</header>
+    <p class="sub" style="margin:0">${EQ.estado==="clave"?"La clave no abre los datos publicados. Escríbela de nuevo.":EQ.ult?`Datos del equipo publicados el <b>${fh(EQ.ult)}</b>${EQ.autorRemoto?" por "+esc(EQ.autorRemoto):""}. La página revisa si hay datos nuevos cada 5 minutos.`:"Cuando alguien publique, aquí aparecerán sus datos."}
+    ${pend?` <b>Tienes cambios sin publicar</b> (${fh(EQ.mod)}).`:""}</p>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">${(BBG||PORT.snaps.length)?`<button class="btn ${pend?"primary":""}" data-eqa="publicar" type="button">${EQ.token?"Publicar para el equipo":"Descargar archivo para el equipo"}</button>`:""}
+      <button class="btn small" data-eqa="sync" type="button">Buscar datos nuevos</button><button class="btn small" data-eqa="salir" type="button">Cambiar clave</button>
+      <span class="faint" style="font-size:12px">${EQ.token?"Publicación automática activada en este computador.":""}</span></div>
+    <details><summary class="muted" style="cursor:pointer;font-size:13px">${EQ.token?"Token de GitHub (publicación automática)":"Activar publicación automática (solo quien carga los datos)"}</summary>
+      <ol class="sub" style="margin:8px 0;padding-left:20px;line-height:1.6"><li>En GitHub, arriba a la derecha: tu foto → <b>Settings</b> → abajo a la izquierda <b>Developer settings</b> → <b>Personal access tokens</b> → <b>Fine-grained tokens</b> → <b>Generate new token</b>.</li>
+        <li>Nombre: <b>radar-gtc equipo</b>. Expiration: <b>90 days</b>. Repository access: <b>Only select repositories</b> → <b>${esc(REPO.r)}</b>.</li>
+        <li>En <b>Permissions</b> → <b>Repository permissions</b> → <b>Contents</b>: elige <b>Read and write</b>. Presiona <b>Generate token</b> y copia el código que empieza con <span class="mono">github_pat_</span>.</li>
+        <li>Pégalo aquí y presiona Guardar. Desde ahora, cada vez que cargues Bloomberg o el portafolio, se comparte solo.</li></ol>
+      <p class="faint" style="font-size:12px;margin:0 0 8px">Hazlo solo en tu computador personal, no en el del Terminal de la universidad: el token queda guardado en este navegador.</p>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><input type="password" data-eqi="token" placeholder="github_pat_…" autocomplete="off" style="flex:1;min-width:200px;max-width:380px" value="${EQ.token?"••••••••":""}">
+        <button class="btn small" data-eqa="token" type="button">Guardar</button>${EQ.token?`<button class="btn small" data-eqa="sintoken" type="button">Quitar token</button>`:""}</div>
+      ${EQ.token?"":`<p class="faint" style="font-size:12px;margin:8px 0 0">Sin token: el botón descarga <b>equipo_datos.json</b>. Súbelo en GitHub a la página principal del repositorio (Add file → Upload files → Commit changes).</p>`}</details></div>`}
+function renderEquipo(){document.querySelectorAll("[data-eqbox]").forEach(b=>b.innerHTML=equipoHTML())}
+document.addEventListener("click",async e=>{const b=e.target.closest("[data-eqa]");if(!b)return;const card=b.closest(".eqc"),v=k=>(card.querySelector(`[data-eqi=${k}]`)?.value||"").trim();
+  const a=b.dataset.eqa;
+  if(a==="entrar"){const c=v("clave");if(c.length<6){toast("Usa una clave de al menos 6 caracteres");return}EQ.clave=c;EQ.autor=v("autor");EQ.estado=null;guardaEQ();renderEquipo();await sincronizarEquipo(true)}
+  if(a==="salir"){EQ.clave=null;EQ.estado=null;guardaEQ();renderEquipo()}
+  if(a==="sync"){toast("Buscando datos del equipo…");EQ.estado=EQ.estado==="clave"?null:EQ.estado;await sincronizarEquipo(true)}
+  if(a==="publicar")await publicarEquipo(false);
+  if(a==="token"){const t=v("token");if(!/^(github_pat_|ghp_)/.test(t)){toast("El token debe empezar con github_pat_");return}EQ.token=t;guardaEQ();renderEquipo();toast("Token guardado");await publicarEquipo(false)}
+  if(a==="sintoken"){EQ.token=null;guardaEQ();renderEquipo()}});
+setInterval(()=>{if(!document.hidden)sincronizarEquipo(false)},5*60*1000);
+
 /* ---------- general ---------- */
 function emptyState(){if(MODO_WLS)return`<div class="empty"><h2>"Mi lista Bloomberg" todavía no tiene datos</h2><p class="muted">Se genera en la próxima actualización de GitHub a partir del archivo <b>wls.txt</b>. Presiona <b>Actualizar ahora</b> → <b>Run workflow</b>, espera unos 15 minutos y recarga. Mientras tanto, el <a href="./">Radar general</a> sigue funcionando.</p></div>`;return`<div class="empty"><h2>Todavía no hay datos</h2><p class="muted">La primera actualización de GitHub aún no termina. Presiona <b>Actualizar ahora</b>, luego <b>Run workflow</b>, espera unos 4 minutos y recarga esta página.</p></div>`}
-function setTab(t){document.querySelectorAll(".tab").forEach(b=>b.setAttribute("aria-selected",b.dataset.tab===t));["resumen","acciones","grupos","cartera","bbg","guia"].forEach(k=>$("#tab-"+k).hidden=k!==t);if(t==="grupos"&&D)drawHM();store("gtc-tab",t);window.scrollTo({top:0})}
-function renderAll(all=true){renderStatus();renderClock();lineaTiempo();renderBBG();if(all){renderResumen();renderGrupos()}renderAcciones();renderCartera()}
+function setTab(t){document.querySelectorAll(".tab").forEach(b=>b.setAttribute("aria-selected",b.dataset.tab===t));["resumen","acciones","grupos","cartera","port","bbg","guia"].forEach(k=>$("#tab-"+k).hidden=k!==t);if(t==="grupos"&&D)drawHM();store("gtc-tab",t);window.scrollTo({top:0})}
+function renderAll(all=true){renderStatus();renderClock();lineaTiempo();renderBBG();if(all){renderResumen();renderGrupos()}renderAcciones();renderCartera();renderPort();renderEquipo()}
 document.querySelectorAll(".tab").forEach(b=>b.onclick=()=>setTab(b.dataset.tab));
 document.addEventListener("click",e=>{
   const add=e.target.closest("[data-add]");if(add){e.stopPropagation();toggleCart(add.dataset.add);return}
@@ -1631,6 +1845,7 @@ function cargar(silencioso){
     .catch(()=>{if(!D){D=null;renderAll()}});
 }
 cargar(false);
+sincronizarEquipo(false);
 setInterval(()=>{if(!document.hidden)cargar(true)},30*60*1000);
 setInterval(renderStatus,60*1000);
 setInterval(()=>document.querySelectorAll("[data-bt]").forEach(el=>{el.outerHTML=bolsaChip(el.dataset.bt,byT[el.dataset.bt],el.dataset.c==="1")}),60*1000);
