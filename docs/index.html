@@ -555,7 +555,7 @@ td .bchip{margin-top:3px}
   <section id="tab-guia" hidden>
     <div class="prose">
       <h2>Cómo usar el radar</h2>
-      <p>GitHub descarga los datos de Yahoo Finance de lunes a viernes a las 8:30 y a las 18:15 (hora de Chile) y vuelve a publicar esta página. Si la tienes abierta, revisa sola cada 30 minutos (y al volver a la pestaña) y muestra los datos nuevos sin que tengas que recargar. Para datos frescos en otro momento, presiona <b>Actualizar ahora</b>, luego <b>Run workflow</b>, espera unos 4 minutos y recarga.</p>
+      <p>GitHub revisa cada 15 minutos. De lunes a viernes recalcula todo cada hora y, entre medio, actualiza solo los precios. Sábado y domingo actualiza cada hora las noticias, los futuros y el bitcoin. Si tienes la página abierta, busca datos nuevos sola cada 10 minutos (y al volver a la pestaña). Yahoo entrega los precios con 15–20 minutos de atraso. Para forzar un cálculo completo, presiona <b>Actualizar ahora</b>, luego <b>Run workflow</b>, y espera unos 20 minutos.</p>
       <p>Empieza por <b>Resumen</b>: cómo viene el mercado, qué reporta resultados y qué está moviéndose. Toca cualquier ticker para abrir su ficha con señales, opinión de analistas y noticias.</p>
       <h2>Qué significa cada cosa</h2>
       <p><b>Puntaje de torneo.</b> Busca acciones que se pueden mover mucho, no acciones seguras. Suma volatilidad de 20 días (35%), retorno de 1 mes (25%), short interest (15%) y beta (10%), estandarizados. Suma 1 punto si reporta resultados entre el 12 de octubre y el 13 de noviembre y resta 2 si transa poco.</p>
@@ -795,7 +795,7 @@ function renderResumen(){
     return`<div class="ag-day"><div class="ag-date ${hoy?"hoy":""}"><b>${hoy?"Hoy":DIA[dt.getDay()]}</b><span>${dt.getDate()} ${MES[dt.getMonth()]}</span></div><div class="ag-items">${items.join("")||'<span class="ag-empty">Sin eventos importantes</span>'}</div></div>`}).join("");
   // contagio compact
   const ctg=C.filter(l=>l.dias!=null&&l.dias>=0&&l.proximo<=D.ventana.fin).slice(0,6);
-  el.innerHTML=`<div class="rs">
+  el.innerHTML=`<div class="rs">${fueraHorario()}
   <section class="r-sec"><div class="r-head"><span class="r-num">1</span><div><h2>¿Cómo está el mercado?</h2><p>Lo que pasó esta semana en el mundo y en la lista de acciones que seguimos.</p></div></div>
     <p class="r-verdict" style="margin:0">${verd}</p>
     <div class="kp4">${kp("Mercado global",ac)}${kp("Nasdaq (tecnología)",nq)}${kp("Small caps EE.UU.",iw)}${kp("Tasa 10 años EE.UU.",tz,1)}</div>
@@ -859,18 +859,29 @@ const TEMA_POR_QUE={
   "Nuevas del día":"No estaban en nuestra lista: el panel las encontró hoy en los rankings de Yahoo (las que más suben, las más transadas, small caps agresivas, más apostadas a la baja). Se renuevan cada día. Revisa que estén en el WLS antes de comprar."};
 function hace(f){if(!f)return"";const d=new Date(f.length<=16?f+":00Z":f),h=(Date.now()-d)/36e5;if(isNaN(h))return fecha(f);if(h<1)return"hace minutos";if(h<24)return`hace ${Math.round(h)} h`;const dd=Math.round(h/24);return dd===1?"ayer":`hace ${dd} días`}
 let notiFiltro="todas";
+function fueraHorario(){
+  const F=D.futuros||[],N=(D.noticiasMercado||[]).filter(g=>g.items&&g.items.length);if(!F.length&&!N.length)return"";
+  const finde=[0,6].includes(new Date().getDay()),abiertas=["US","LN","JP","KS","TT"].filter(c=>estadoBolsa(c).fase==="abierta").length;
+  const ses=F.find(f=>f.t==="ES=F"),nk=F.find(f=>f.t==="NKD=F");
+  const lect=ses?`Los futuros del S&P 500 van <b class="${ses.r1d>=0?"up":"down"}">${sgn(ses.r1d,2)}</b>${nk?` y los del Nikkei <b class="${nk.r1d>=0?"up":"down"}">${sgn(nk.r1d,2)}</b>`:""}. ${Math.abs(ses.r1d)>=1?"Es un movimiento grande: anticipa una apertura fuerte en esa dirección.":"Por ahora no anticipan un movimiento grande al abrir."}`:"";
+  return`<section class="r-sec"><div class="r-head"><span class="r-num">0</span><div><h2>${finde?"Fin de semana: qué puede mover la apertura":abiertas?"Futuros y noticias del mercado":"Bolsas cerradas: qué puede mover la apertura"}</h2><p>Los futuros operan casi todo el día (desde el domingo ~19:00 hora Chile) y adelantan cómo podría abrir el mercado. Las noticias se revisan cada hora, también sábado y domingo${D.noticiasHora?` · últimas: ${hace(D.noticiasHora)}`:""}.</p></div></div>
+    ${lect?`<p class="r-verdict" style="margin:0">${lect}</p>`:""}
+    ${F.length?`<div class="kp4">${F.map(f=>`<div class="kp"><span class="kl">${esc(f.nombre)}</span><span class="kv">${fmt(f.precio,f.precio>1000?0:2)}</span><span class="kc ${f.r1d>=0?"up":"down"}">${sgn(f.r1d,2)} desde el último cierre</span></div>`).join("")}</div>`:""}
+    ${N.length?`<div class="news2">${N.map(g=>`<div class="nw2"><span class="chip" style="align-self:flex-start;white-space:nowrap;flex:none;margin-right:6px">${esc(g.region)}</span><div class="nw2-b">${g.items.slice(0,2).map(x=>`<a href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.titulo)}</a><span class="nw2-m">${esc(x.fuente||"")}${x.fecha?" · "+hace(x.fecha):""}</span>`).join("")}</div></div>`).join("")}</div>`:""}
+  </section>`}
 function secNoticias(){
   const A=D.acciones,vistos=new Set(),todas=[];
   const prox=new Set(A.filter(a=>a.diasEarn!=null&&a.diasEarn>=0&&a.diasEarn<=7).map(a=>a.t)),cartT=new Set(cart.items.map(i=>i.t));
   A.forEach(a=>(a.noticias||[]).forEach(nw=>{if(!nw.url||vistos.has(nw.url))return;vistos.add(nw.url);todas.push({...nw,a})}));
   todas.sort((x,y)=>(y.fecha||"").localeCompare(x.fecha||""));
-  const F={todas:["Todas",()=>true],cartera:["De mi cartera",x=>cartT.has(x.a.t)],reportan:["De las que reportan pronto",x=>prox.has(x.a.t)]};
+  const portT=new Set(((PORT.snaps[PORT.snaps.length-1]||{}).pos||[]).map(p=>radarDe(p.k)).filter(Boolean));
+  const F={todas:["Todas",()=>true],port:["De lo que tenemos comprado",x=>portT.has(x.a.t)],cartera:["De mi cartera",x=>cartT.has(x.a.t)],reportan:["De las que reportan pronto",x=>prox.has(x.a.t)]};
   const lista=todas.filter(F[notiFiltro][1]).slice(0,12);
   return`<section class="r-sec" id="s-news"><div class="r-head"><span class="r-num">3</span><div><h2>¿Qué dicen las noticias?</h2><p>Los titulares más recientes de nuestras acciones. Una noticia fuerte (contrato, resultados, regulación) suele explicar un salto de precio o de volumen. Toca el titular para leerla completa (en inglés).</p></div></div>
     <div class="seg" role="tablist" style="align-self:flex-start">${Object.entries(F).map(([k,v])=>`<button type="button" role="tab" aria-selected="${k===notiFiltro}" data-noti="${k}">${v[0]}</button>`).join("")}</div>
     ${lista.length?`<div class="news2">${lista.map(x=>`<div class="nw2">${av(x.a)}<div class="nw2-b"><a href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.titulo)}</a>
       <span class="nw2-m">${tkBtn(x.a.t)} ${esc(nombreCorto(x.a.nombre,x.a.t))} · ${esc(x.fuente||"")}${x.fecha?" · "+hace(x.fecha):""}${x.a.r1d!=null?` · <span class="${x.a.r1d>=0?"up":"down"}">hoy ${sgn(x.a.r1d)}</span>`:""}</span></div></div>`).join("")}</div>`
-      :`<div class="ag-empty">${notiFiltro==="cartera"?"Todavía no tienes acciones en la cartera.":"No hay noticias en este filtro."}</div>`}
+      :`<div class="ag-empty">${notiFiltro==="cartera"?"Todavía no tienes acciones en la cartera.":notiFiltro==="port"?"Carga tus posiciones en la pestaña Portafolio para ver sus noticias.":"No hay noticias en este filtro."}</div>`}
   </section>`;
 }
 const FACT=[["ACWI","Mercado global"],["QQQ","Nasdaq"],["IWM","Small caps"],["BTC-USD","Bitcoin"],["URA","Uranio"],["SMH","Semiconductores"]];
@@ -1852,10 +1863,10 @@ function cargar(silencioso){
 }
 cargar(false);
 sincronizarEquipo(false);
-setInterval(()=>{if(!document.hidden)cargar(true)},30*60*1000);
+setInterval(()=>{if(!document.hidden)cargar(true)},10*60*1000);
 setInterval(renderStatus,60*1000);
 setInterval(()=>document.querySelectorAll("[data-bt]").forEach(el=>{el.outerHTML=bolsaChip(el.dataset.bt,byT[el.dataset.bt],el.dataset.c==="1")}),60*1000);
-document.addEventListener("visibilitychange",()=>{if(!document.hidden&&Date.now()-ultimoChequeo>10*60*1000)cargar(true)});
+document.addEventListener("visibilitychange",()=>{if(!document.hidden&&Date.now()-ultimoChequeo>5*60*1000)cargar(true)});
 })();
 </script>
 </body>
