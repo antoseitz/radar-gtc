@@ -631,7 +631,9 @@ const BOLSAS={
   CH:{n:"China",tz:"Asia/Shanghai",ses:[[9.5,11.5],[13,15]]},SP:{n:"Singapur",tz:"Asia/Singapore",ses:[[9,12],[13,17]]},
   IJ:{n:"Indonesia",tz:"Asia/Jakarta",ses:[[9,12],[13.5,15.83]]},TB:{n:"Tailandia",tz:"Asia/Bangkok",ses:[[10,12.5],[14.5,16.5]]},
   MK:{n:"Malasia",tz:"Asia/Kuala_Lumpur",ses:[[9,12.5],[14.5,17]]},PM:{n:"Filipinas",tz:"Asia/Manila",ses:[[9.5,12],[13,14.75]]},
-  VN:{n:"Vietnam",tz:"Asia/Ho_Chi_Minh",ses:[[9,11.5],[13,14.75]]},AU:{n:"Australia",tz:"Australia/Sydney",ses:[[10,16]]},NZ:{n:"Nueva Zelanda",tz:"Pacific/Auckland",ses:[[10,16.75]]}
+  VN:{n:"Vietnam",tz:"Asia/Ho_Chi_Minh",ses:[[9,11.5],[13,14.75]]},
+  AV:{n:"Viena",tz:"Europe/Vienna",ses:[[9,17.5]]},BB:{n:"Bruselas",tz:"Europe/Brussels",ses:[[9,17.5]]},PL:{n:"Lisboa",tz:"Europe/Lisbon",ses:[[8,16.5]]},
+  ID:{n:"Dublín",tz:"Europe/Dublin",ses:[[8,16.5]]},EY:{n:"Egipto",tz:"Africa/Cairo",ses:[[10,14.5]],dias:[0,1,2,3,4]},AU:{n:"Australia",tz:"Australia/Sydney",ses:[[10,16]]},NZ:{n:"Nueva Zelanda",tz:"Pacific/Auckland",ses:[[10,16.75]]}
 };
 const BOLSA_YAHOO={NMS:"Nasdaq",NGM:"Nasdaq",NCM:"Nasdaq",NAS:"Nasdaq",NYQ:"NYSE",NYS:"NYSE",ASE:"NYSE American",PCX:"NYSE Arca",BTS:"Cboe",OQB:"OTC",PNK:"OTC"};
 const DIAS_ES=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
@@ -1075,10 +1077,11 @@ function filas(){
 }
 function renderAcciones(){
   const el=$("#tab-acciones");if(!D){el.innerHTML=emptyState();return}
+  if(vistaAcc==="wls"){el.innerHTML=vistaToggle()+renderUni();bindAccVista(el);bindUni(el);return}
   const temas=[...new Set(D.acciones.map(a=>a.tema))].sort();
   const maxS=Math.max(...D.acciones.map(a=>a.puntaje||0),1);
   const enC=new Set(cart.items.map(i=>i.t));const F=filas();
-  el.innerHTML=`
+  el.innerHTML=vistaToggle()+pistaWLS()+`
   <div class="filters">
     <input type="search" id="fq" placeholder="Buscar ticker, nombre o industria" value="${esc(filtro.q)}" aria-label="Buscar" style="min-width:220px">
     <select id="ft" aria-label="Tema"><option value="">Todos los temas</option>${temas.map(t=>`<option ${t===filtro.tema?"selected":""}>${esc(t)}</option>`).join("")}</select>
@@ -1109,6 +1112,7 @@ function renderAcciones(){
     </tr>`).join("")||`<tr><td colspan="20" class="muted" style="padding:20px">Ninguna acción cumple los filtros.</td></tr>`}</tbody>
   </table></div>`;
   const keep=id=>{const e=$(id);e.focus();const v=e.value;e.setSelectionRange?.(v.length,v.length)};
+  bindAccVista(el);
   $("#fq").oninput=e=>{filtro.q=e.target.value.toLowerCase();renderAcciones();keep("#fq")};
   $("#ft").onchange=e=>{filtro.tema=e.target.value;renderAcciones()};
   $("#fm").onchange=e=>{filtro.mom=e.target.value;renderAcciones()};
@@ -1838,6 +1842,98 @@ document.addEventListener("click",async e=>{const b=e.target.closest("[data-eqa]
   if(a==="sintoken"){EQ.token=null;guardaEQ();renderEquipo()}});
 setInterval(()=>{if(!document.hidden)sincronizarEquipo(false)},5*60*1000);
 
+/* ---------- UNIVERSO WLS: todas las acciones (datos livianos de precio) ---------- */
+let U=null,vistaAcc=load("gtc-vista")||"radar",uF={q:"",bolsa:"",liq:false,abiertas:false,n:100},uSort={k:"liq",d:-1};
+const UCOLS_N={precio:1,r1d:1,r1s:1,r1m:1,r3m:1,vol20:1,liq:1,rsi:1,dist52:1};
+function cargarU(){return fetch("universo.json?v="+Date.now(),{cache:"no-store"}).then(r=>r.ok?r.json():null).then(j=>{
+  if(!j||!j.filas)return;U={generado:j.generado,n:j.n,filas:j.filas.map(f=>{const o={};j.cols.forEach((c,i)=>o[c]=f[i]);return o})};
+  stubsCartera();renderAcciones();renderCartera()}).catch(()=>{})}
+function stubU(o){if(!byT[o.t])byT[o.t]={t:o.t,nombre:o.nombre||o.bbg,tema:"WLS",rank:"–",vol20:o.vol20,r1m:o.r1m,r3m:o.r3m,r1d:o.r1d,momentum:o.momentum,precio:o.precio,
+  betas:{ACWI:1},grupo:"–",senales:[],noticias:[],hist:[],bbgOnly:true,tkBBG:o.bbg,bolsaBBG:o.bolsa,uni:true};return o.t}
+function stubsCartera(){if(!U)return;const m=new Map(U.filas.map(o=>[o.t,o]));cart.items.forEach(i=>{if(!byT[i.t]&&m.has(i.t))stubU(m.get(i.t))})}
+const codU=o=>codigoBolsa(o.t,{bolsaBBG:o.bolsa});
+const nomBolsaU=o=>{const c=codU(o);return c==="US"?"EE.UU.":(BOLSAS[c]||{}).n||o.bolsa};
+function filasU(){if(!U)return[];const q=uF.q;
+  const a=U.filas.filter(o=>(!q||(o.bbg+" "+(o.nombre||"")+" "+o.t).toLowerCase().includes(q))&&(!uF.bolsa||nomBolsaU(o)===uF.bolsa)&&(!uF.liq||(o.liq??0)>=5)&&(!uF.abiertas||estadoBolsa(codU(o)).fase==="abierta"));
+  const k=uSort.k,d=uSort.d;return a.sort((p,q)=>{const A=p[k],B=q[k];if(A==null)return 1;if(B==null)return-1;return(A>B?1:A<B?-1:0)*d})}
+function bindAccVista(el){el.querySelectorAll("[data-vista]").forEach(b=>b.onclick=()=>{vistaAcc=b.dataset.vista;store("gtc-vista",vistaAcc);renderAcciones()});
+  const v=el.querySelector("[data-verwls]");if(v)v.onclick=()=>{vistaAcc="wls";uF.q=filtro.q;uF.n=100;store("gtc-vista",vistaAcc);renderAcciones()}}
+function vistaToggle(){return`<div class="seg" role="tablist" style="align-self:flex-start"><button type="button" role="tab" data-vista="radar" aria-selected="${vistaAcc==="radar"}">Radar · ${D.acciones.length} con análisis completo</button><button type="button" role="tab" data-vista="wls" aria-selected="${vistaAcc==="wls"}">Todo el WLS · ${U?U.filas.length.toLocaleString("es-CL"):"cargando…"}</button></div>`}
+function pistaWLS(){if(!U||!filtro.q)return"";const enR=new Set(D.acciones.map(a=>a.t));const n=U.filas.filter(o=>!enR.has(o.t)&&(o.bbg+" "+(o.nombre||"")+" "+o.t).toLowerCase().includes(filtro.q)).length;
+  return n?`<div class="card" style="flex-direction:row;align-items:center;gap:12px;flex-wrap:wrap;padding:10px 14px"><span style="flex:1;min-width:200px">Hay <b>${n}</b> acción${n===1?"":"es"} más del WLS que coinciden con "${esc(filtro.q)}".</span><button class="btn small" type="button" data-verwls>Ver en Todo el WLS</button></div>`:""}
+function renderUni(){
+  if(!U)return`<div class="empty"><h2>Cargando todas las acciones del WLS…</h2><p class="muted">Si no aparecen, todavía no corre la actualización completa en GitHub con el archivo <b>universo.txt</b>.</p></div>`;
+  const F=filasU(),enR=new Set(D.acciones.map(a=>a.t)),enC=new Set(cart.items.map(i=>i.t));
+  const bolsas={};U.filas.forEach(o=>{const n=nomBolsaU(o);bolsas[n]=(bolsas[n]||0)+1});
+  const H=[["#","",0],["bbg","Acción · bolsa",0],["precio","Precio",1],["r1d","Día",1],["r1s","Semana",1],["r1m","Mes",1],["r3m","3 meses",1],["momentum","Momentum",0],["vol20","Vol 20d",1],["liq","US$ M/día",1],["rsi","RSI",1],["dist52","Desde máx. 1 año",1]];
+  const hoy=Date.now();
+  return`<div class="filters">
+    <input type="search" id="uq" placeholder="Buscar ticker o nombre (ej. BAWAG, 2330, HYNIX)" value="${esc(uF.q)}" aria-label="Buscar en el WLS" style="min-width:260px">
+    <select id="ub" aria-label="Bolsa"><option value="">Todas las bolsas</option>${Object.entries(bolsas).sort((a,b)=>b[1]-a[1]).map(([n,c])=>`<option value="${esc(n)}" ${n===uF.bolsa?"selected":""}>${esc(n)} (${c})</option>`).join("")}</select>
+    <label class="chk"><input type="checkbox" id="ul" ${uF.liq?"checked":""}> Líquidas (> US$5M/día)</label>
+    <label class="chk"><input type="checkbox" id="ua" ${uF.abiertas?"checked":""}> Bolsa abierta ahora</label>
+    <span class="muted">${F.length.toLocaleString("es-CL")} de ${U.filas.length.toLocaleString("es-CL")} · precios ${hace(U.generado)}</span></div>
+  <div class="tablebox"><table><thead><tr>${H.map(([k,l,n])=>`<th class="${k!=="#"?"sort":""} ${n?"n":""}" ${k!=="#"?`data-uk="${k}"`:""}>${l}${uSort.k===k?(uSort.d>0?" ↑":" ↓"):""}</th>`).join("")}<th><span class="sr">Cartera</span></th></tr></thead>
+  <tbody>${F.slice(0,uF.n).map((o,i)=>{const viejo=o.fecha&&(hoy-new Date(o.fecha+"T12:00:00"))>4*864e5;return`<tr>
+    <td class="n faint">${i+1}</td>
+    <td><span class="tk">${esc(o.bbg)}</span>${enR.has(o.t)?` <button class="chip good" style="font-size:10.5px;padding:0 6px;border:0" data-open="${esc(o.t)}" type="button" title="Tiene análisis completo en el Radar">En el radar</button>`:""}<span class="nm">${esc(o.nombre||"")}</span>${bolsaChip(o.t,{bolsaBBG:o.bolsa},1)}</td>
+    <td class="n">${fmt(o.precio,o.precio>=1000?0:2)}${viejo?`<span class="nm faint" title="Último precio disponible">al ${fecha(o.fecha)}</span>`:""}</td>
+    <td class="n">${pct(o.r1d)}</td><td class="n">${pct(o.r1s)}</td><td class="n">${pct(o.r1m)}</td><td class="n">${pct(o.r3m)}</td>
+    <td>${momChip(o.momentum)}</td><td class="n">${o.vol20==null?"–":fmt(o.vol20,0)+"%"}</td>
+    <td class="n ${o.liq!=null&&o.liq<2?"faint":""}">${o.liq==null?"–":fmt(o.liq,o.liq<10?1:0)}</td>
+    <td class="n ${o.rsi>=70?"down":o.rsi<=30?"up":""}">${o.rsi==null?"–":fmt(o.rsi,0)}</td><td class="n">${pct(o.dist52,0)}</td>
+    <td><button class="add ${enC.has(o.t)?"on":""}" data-uadd="${esc(o.t)}" type="button" aria-label="Agregar ${esc(o.bbg)} a la cartera">${enC.has(o.t)?"✓":"+"}</button></td></tr>`}).join("")||`<tr><td colspan="13" class="muted" style="padding:20px">Ninguna acción coincide. Si es del WLS y no está en la lista, agrégala abajo.</td></tr>`}</tbody></table></div>
+  ${F.length>uF.n?`<button class="btn small" id="umas" type="button" style="align-self:flex-start">Ver ${Math.min(100,F.length-uF.n)} más</button>`:""}
+  <div class="two">
+    <div class="card"><header><h2>¿No está la acción que buscas?</h2></header>
+      <p class="sub" style="margin:0">Escribe su ticker de Bloomberg (por ejemplo <b>BG AV</b> para BAWAG en Viena). Se agrega al archivo <b>equipo.txt</b> y en la próxima actualización completa (máximo 1 hora) aparece en el Radar con todos sus datos y noticias. Confirma antes en Bloomberg que esté en el WLS.</p>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><input id="unew" placeholder="Ej: BG AV" style="max-width:180px" autocomplete="off"><input id="unewm" placeholder="Motivo (opcional)" style="flex:1;min-width:160px"><button class="btn primary" id="unewb" type="button">Agregar al radar</button></div>
+      ${EQ.token?"":`<p class="faint" style="font-size:12px;margin:0">Necesita el token de GitHub del cuadro Equipo. Sin token: en GitHub abre <b>equipo.txt</b> → lápiz ✏️ → agrega una línea con el ticker → <b>Commit changes</b>.</p>`}</div>
+    <div class="card"><header><h2>Actualizar la lista completa del WLS</h2></header>
+      <p class="sub" style="margin:0">Esta lista tiene ${U.n.toLocaleString("es-CL")} acciones. Para tener <b>todas</b> las del índice: en Bloomberg escribe <b>WLS Index MEMB</b> (o una EQS con "Index = WLS"), exporta solo la columna de tickers y súbela aquí. Reemplaza el archivo <b>universo.txt</b>.</p>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"><label class="btn" style="cursor:pointer">Subir Excel con tickers<input type="file" id="ufile" accept=".xlsx,.xls,.csv,.txt" hidden></label><span class="faint" style="font-size:12px">${EQ.token?"Se guarda directo en GitHub.":"Sin token se descarga universo.txt para que lo subas a GitHub."}</span></div></div>
+  </div>`}
+function bindUni(el){
+  const keep=id=>{const e=$(id);if(!e)return;e.focus();const v=e.value;e.setSelectionRange?.(v.length,v.length)};
+  const q=$("#uq");if(q)q.oninput=e=>{uF.q=e.target.value.toLowerCase().trim();uF.n=100;renderAcciones();keep("#uq")};
+  const b=$("#ub");if(b)b.onchange=e=>{uF.bolsa=e.target.value;uF.n=100;renderAcciones()};
+  const l=$("#ul");if(l)l.onchange=e=>{uF.liq=e.target.checked;renderAcciones()};
+  const a=$("#ua");if(a)a.onchange=e=>{uF.abiertas=e.target.checked;renderAcciones()};
+  const m=$("#umas");if(m)m.onclick=()=>{uF.n+=100;renderAcciones()};
+  el.querySelectorAll("[data-uk]").forEach(th=>th.onclick=()=>{const k=th.dataset.uk;uSort=uSort.k===k?{k,d:-uSort.d}:{k,d:["bbg","momentum"].includes(k)?1:-1};renderAcciones()});
+  el.querySelectorAll("[data-uadd]").forEach(btn=>btn.onclick=e=>{e.stopPropagation();const o=U.filas.find(x=>x.t===btn.dataset.uadd);if(!o)return;stubU(o);toggleCart(o.t)});
+  const nb=$("#unewb");if(nb)nb.onclick=()=>agregarRadar($("#unew").value,$("#unewm").value);
+  const uf=$("#ufile");if(uf)uf.onchange=()=>{if(uf.files[0])subirUniverso(uf.files[0]);uf.value=""};
+}
+/* GitHub: leer y escribir archivos del repositorio con el token del cuadro Equipo */
+const b64u=t=>btoa(unescape(encodeURIComponent(t))),unb64u=t=>decodeURIComponent(escape(atob(t.replace(/\s/g,""))));
+async function ghArchivo(path){const r=await fetch(`https://api.github.com/repos/${REPO.o}/${REPO.r}/contents/${path}`,{headers:{Authorization:"Bearer "+EQ.token,Accept:"application/vnd.github+json"},cache:"no-store"});
+  if(r.status===404)return{sha:undefined,texto:""};if(!r.ok)throw new Error(r.status);const j=await r.json();return{sha:j.sha,texto:j.content?unb64u(j.content):""}}
+async function ghGuardar(path,texto,msg,sha){const r=await fetch(`https://api.github.com/repos/${REPO.o}/${REPO.r}/contents/${path}`,{method:"PUT",headers:{Authorization:"Bearer "+EQ.token,Accept:"application/vnd.github+json"},body:JSON.stringify({message:msg,content:b64u(texto),sha})});if(!r.ok)throw new Error(r.status)}
+const BOLSAS_OK=["US","UN","UW","UQ","UA","UR","UP","UV","CN","CT","BZ","MM","CI","LN","GR","GY","FP","NA","SM","IM","BB","AV","PL","FH","ID","SW","SE","SS","DC","NO","PW","HB","TI","IT","AB","QD","SJ","JP","JT","KS","KQ","TT","HK","C1","C2","IN","IS","IB","SP","TB","IJ","PM","AU","NZ","MK","CB","EY","VN","KK"];
+function normTicker(v){const p=String(v||"").toUpperCase().replace(/\s+EQUITY\s*$/,"").trim().split(/\s+/);if(!p[0]||!/^[A-Z0-9][A-Z0-9.\/\-]{0,14}$/.test(p[0]))return null;const ex=p[1]||"US";return BOLSAS_OK.includes(ex)&&p.length<=2?p[0]+" "+ex:null}
+async function agregarRadar(v,motivo){
+  const t=normTicker(v);if(!t){toast("Escribe el ticker como en Bloomberg, por ejemplo: BG AV");return}
+  if(!EQ.token){toast("Necesitas el token de GitHub (cuadro Equipo) o agregarlo a mano en equipo.txt");return}
+  try{const f=await ghArchivo("equipo.txt");if(f.texto.split("\n").some(l=>normTicker(l.split(",")[0].split("#")[0])===t)){toast(`${t} ya está en equipo.txt`);return}
+    const linea=`${t}, ${String(motivo||"Agregada desde la página").replace(/[\r\n,#]/g," ").trim()||"Agregada desde la página"}`;
+    await ghGuardar("equipo.txt",(f.texto.replace(/\s*$/,"")+"\n"+linea+"\n"),`Agregar ${t} al radar`,f.sha);
+    toast(`${t} agregada: aparece en el Radar en la próxima actualización completa (máx. 1 hora)`);$("#unew").value="";$("#unewm").value=""}
+  catch(e){toast("No se pudo guardar en GitHub ("+e.message+"). Revisa el token.")}}
+async function subirUniverso(file){
+  let filas=[];
+  try{if(/\.(txt|csv)$/i.test(file.name)){filas=(await file.text()).split(/\r?\n/).map(l=>l.split(/[\t;,|]/))}
+    else{await cargarLib();const wb=XLSX.read(await file.arrayBuffer());wb.SheetNames.forEach(n=>{filas=filas.concat(XLSX.utils.sheet_to_json(wb.Sheets[n],{header:1,raw:false,defval:""}))})}}
+  catch(e){toast("No se pudo leer el archivo");return}
+  const vistos=new Map();
+  filas.forEach(r=>{if(!r)return;for(let i=0;i<Math.min(r.length,3);i++){const t=normTicker(r[i]);if(t&&!/^(TICKER|SECURITY|NAME)/i.test(String(r[i]))){if(!vistos.has(t)){const nm=r.find((x,j)=>j!==i&&x&&/[A-Za-z]{3}/.test(x)&&!normTicker(x));vistos.set(t,nm?String(nm).trim().slice(0,40):"")}break}}});
+  if(vistos.size<20){toast(`Solo encontré ${vistos.size} tickers en el archivo. Revisa que tenga una columna con tickers de Bloomberg.`);return}
+  if(!confirm(`Encontré ${vistos.size.toLocaleString("es-CL")} tickers. ¿Reemplazar la lista del WLS (universo.txt) con estos?`))return;
+  const texto="# Universo WLS: una accion por linea (formato Bloomberg) | nombre opcional\n"+[...vistos].map(([t,n])=>n?`${t} | ${n.replace(/[|#\n]/g," ")}`:t).join("\n")+"\n";
+  if(!EQ.token){const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([texto],{type:"text/plain"}));a.download="universo.txt";a.click();toast("Descargué universo.txt: súbelo al inicio del repositorio en GitHub");return}
+  try{const f=await ghArchivo("universo.txt");await ghGuardar("universo.txt",texto,`Lista WLS: ${vistos.size} acciones`,f.sha);toast(`Lista guardada: ${vistos.size.toLocaleString("es-CL")} acciones. Se descargan en la próxima actualización completa.`)}
+  catch(e){toast("No se pudo guardar en GitHub ("+e.message+")")}}
+
 /* ---------- general ---------- */
 function emptyState(){if(MODO_WLS)return`<div class="empty"><h2>"Mi lista Bloomberg" todavía no tiene datos</h2><p class="muted">Se genera en la próxima actualización de GitHub a partir del archivo <b>wls.txt</b>. Presiona <b>Actualizar ahora</b> → <b>Run workflow</b>, espera unos 15 minutos y recarga. Mientras tanto, el <a href="./">Radar general</a> sigue funcionando.</p></div>`;return`<div class="empty"><h2>Todavía no hay datos</h2><p class="muted">La primera actualización de GitHub aún no termina. Presiona <b>Actualizar ahora</b>, luego <b>Run workflow</b>, espera unos 4 minutos y recarga esta página.</p></div>`}
 function setTab(t){document.querySelectorAll(".tab").forEach(b=>b.setAttribute("aria-selected",b.dataset.tab===t));["resumen","acciones","grupos","cartera","port","bbg","guia"].forEach(k=>$("#tab-"+k).hidden=k!==t);if(t==="grupos"&&D)drawHM();store("gtc-tab",t);window.scrollTo({top:0})}
@@ -1868,7 +1964,7 @@ function cargar(silencioso){
       if(D&&nuevo.generado===D.generado){renderStatus();return}
       const habia=!!D;
       const abierta=$(".drawer")?$(".drawer").getAttribute("aria-label").replace("Ficha de ",""):null;
-      D=nuevo;byT={};temaColor={};D.acciones.forEach(a=>{a.senales=a.senales||[];a.noticias=a.noticias||[];a.kmov=a.kronos?a.kronos.mov:null;if(a.earn)a.diasEarn=diasHasta(a.earn);byT[a.t]=a});(D.contagio||[]).forEach(l=>{l.dias=diasHasta(l.proximo)});aplicarBBG();
+      D=nuevo;byT={};temaColor={};D.acciones.forEach(a=>{a.senales=a.senales||[];a.noticias=a.noticias||[];a.kmov=a.kronos?a.kronos.mov:null;if(a.earn)a.diasEarn=diasHasta(a.earn);byT[a.t]=a});(D.contagio||[]).forEach(l=>{l.dias=diasHasta(l.proximo)});aplicarBBG();stubsCartera();cargarU();
       renderAll();
       if(abierta&&byT[abierta])openFicha(abierta);
       if(habia&&silencioso)toast("Datos actualizados");
