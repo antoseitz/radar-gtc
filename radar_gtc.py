@@ -132,7 +132,8 @@ BBG2YF = {
     "JP": (".T", "JPY", 1), "JT": (".T", "JPY", 1), "KS": (".KS", "KRW", 1), "KQ": (".KQ", "KRW", 1), "TT": (".TW", "TWD", 1),
     "HK": (".HK", "HKD", 1), "C1": (".SS", "CNY", 1), "C2": (".SZ", "CNY", 1), "IN": (".NS", "INR", 1), "IS": (".NS", "INR", 1),
     "IB": (".BO", "INR", 1), "SP": (".SI", "SGD", 1), "TB": (".BK", "THB", 1), "IJ": (".JK", "IDR", 1), "PM": (".PS", "PHP", 1),
-    "AU": (".AX", "AUD", 1), "NZ": (".NZ", "NZD", 1),
+    "AU": (".AX", "AUD", 1), "NZ": (".NZ", "NZD", 1), "MK": (".KL", "MYR", 1), "CB": (".CL", "COP", 1),
+    "EY": (".CA", "EGP", 1), "VN": (".VN", "VND", 1), "KK": (".KW", "KWD", 1000),
 }
 SUF2MON = {v[0]: (v[1], v[2]) for v in BBG2YF.values() if v[0]}
 
@@ -905,6 +906,119 @@ def construir(es_demo=False, modo_wls=False):
     }
 
 
+# ---------------- UNIVERSO: todas las acciones del WLS (datos livianos, solo precios) ----------------
+UNIVERSO_TXT = "universo.txt"
+
+
+def leer_universo():
+    """universo.txt (+ wls.txt + equipo.txt): simbolo Yahoo -> (ticker Bloomberg, nombre)."""
+    out = {}
+    for f in (UNIVERSO_TXT, WLS_TXT, EQUIPO_TXT):
+        if not os.path.exists(f):
+            continue
+        for linea in open(f, encoding="utf-8"):
+            linea = linea.split("#")[0].strip()
+            if not linea:
+                continue
+            tk, _, nom = linea.partition("|")
+            r_ = a_yahoo(tk.split(",")[0].strip())
+            if r_ and r_[0] not in out:
+                out[r_[0]] = (r_[1], nom.strip() or None)
+    return out
+
+
+def _bajar(tickers, periodo, lote=400):
+    """Descarga en lotes; devuelve (close, volume) con una columna por ticker."""
+    import yfinance as yf
+    cls, vols = [], []
+    for i in range(0, len(tickers), lote):
+        parte = tickers[i:i + lote]
+        for intento in range(2):
+            try:
+                df = yf.download(parte, period=periodo, interval="1d", auto_adjust=True, progress=False,
+                                 threads=True, group_by="column")
+                break
+            except Exception as e:
+                print(f"  lote {i}: {e}")
+                df = pd.DataFrame()
+                time.sleep(10)
+        time.sleep(2)  # pausa entre lotes para que Yahoo no limite
+        if df.empty:
+            continue
+        if isinstance(df.columns, pd.MultiIndex):
+            cls.append(df["Close"]); vols.append(df["Volume"])
+        else:
+            cls.append(df[["Close"]].rename(columns={"Close": parte[0]}))
+            vols.append(df[["Volume"]].rename(columns={"Volume": parte[0]}))
+    if not cls:
+        return pd.DataFrame(), pd.DataFrame()
+    return pd.concat(cls, axis=1), pd.concat(vols, axis=1)
+
+
+UCOLS = ["t", "bbg", "nombre", "bolsa", "precio", "r1d", "r1s", "r1m", "r3m", "vol20", "liq", "rsi", "dist52", "momentum", "fecha"]
+
+
+def construir_universo():
+    U = leer_universo()
+    if not U:
+        return None
+    ts = list(U)
+    print(f"Universo WLS: descargando {len(ts)} acciones...")
+    close, volu = _bajar(ts, "1y")
+    monedas = sorted({SUF2MON[s_][0] for t in ts for s_ in SUF2MON if t.endswith(s_)})
+    fxc, _ = _bajar([f"{m}=X" for m in monedas], "5d")
+    fx = {m: float(fxc[f"{m}=X"].dropna().iloc[-1]) for m in monedas if f"{m}=X" in fxc and fxc[f"{m}=X"].notna().any()}
+    filas = []
+    for t in ts:
+        if t not in close:
+            continue
+        s_ = close[t].dropna()
+        if len(s_) < 2:
+            continue
+        v_ = volu[t].reindex(s_.index).fillna(0) if t in volu else None
+        px = float(s_.iloc[-1])
+        var = lambda n: (px / float(s_.iloc[-1 - n]) - 1) * 100 if len(s_) > n else None
+        rt = s_.pct_change().tail(20)
+        fac = factor_usd(t, fx)
+        liq = float((s_ * v_).tail(20).mean()) * fac / 1e6 if (v_ is not None and fac) else None
+        r1m, r3m = var(21), var(63)
+        try:
+            rs = float(rsi(s_).iloc[-1]) if len(s_) > 20 else None
+        except Exception:
+            rs = None
+        bbg, nom = U[t]
+        filas.append([t, bbg, nom, bbg.split()[-1], r(px), r(var(1), 1), r(var(5), 1), r(r1m, 1), r(r3m, 1),
+                      r(float(rt.std()) * np.sqrt(252) * 100, 0) if len(rt) > 5 else None, r(liq, 1), r(rs, 0),
+                      r((px / float(s_.max()) - 1) * 100, 1), cuadrante(r(r1m, 1), r(r3m, 1)) if r1m is not None and r3m is not None else None,
+                      s_.index[-1].date().isoformat()])
+    print(f"Universo WLS: {len(filas)} de {len(ts)} con precios")
+    return {"generado": datetime.now(timezone.utc).isoformat(timespec="minutes"), "n": len(ts),
+            "cols": UCOLS, "filas": filas}
+
+
+def rapido_universo(u):
+    if not u or not u.get("filas"):
+        return u
+    ix = {c: i for i, c in enumerate(u["cols"])}
+    ts = [f[0] for f in u["filas"]]
+    close, _ = _bajar(ts, "7d", lote=500)
+    n = 0
+    for f in u["filas"]:
+        t = f[0]
+        if t not in close:
+            continue
+        s_ = close[t].dropna()
+        if len(s_) < 2:
+            continue
+        f[ix["precio"]] = r(float(s_.iloc[-1]))
+        f[ix["r1d"]] = r((float(s_.iloc[-1]) / float(s_.iloc[-2]) - 1) * 100, 1)
+        f[ix["fecha"]] = s_.index[-1].date().isoformat()
+        n += 1
+    u["generado"] = datetime.now(timezone.utc).isoformat(timespec="minutes")
+    print(f"Universo WLS rapido: {n} precios")
+    return u
+
+
 # ---------------- MODO AUTOMATICO (GitHub cada 15 minutos) ----------------
 FUTUROS = {"ES=F": "S&P 500 (futuro)", "NQ=F": "Nasdaq 100 (futuro)", "NKD=F": "Nikkei 225 (futuro CME)",
            "CL=F": "Petróleo WTI", "GC=F": "Oro", "BTC-USD": "Bitcoin (opera 24/7)"}
@@ -1029,12 +1143,18 @@ def auto():
     ahora = datetime.now(timezone.utc)
     habil = ahora.weekday() < 5 or (ahora.weekday() == 6 and ahora.hour >= 22)  # lunes a viernes (+ domingo noche: abre Asia)
     previos = {k: _bajar_json(sitio + os.path.basename(v)) for k, v in ARCHIVOS.items()}
+    uni_prev = _bajar_json(sitio + "universo.json")
     gen = previos.get("general")
     edad_full = _edad_min((gen or {}).get("completo") or (gen or {}).get("ultimoCompleto") or "") if gen else 1e9
     edad_act = _edad_min((gen or {}).get("generado") or "") if gen else 1e9
     edad_not = _edad_min((gen or {}).get("noticiasHora") or (gen or {}).get("completo") or "") if gen else 1e9
     publicar = True
+    uni = uni_prev
     if manual or gen is None or (habil and edad_full >= 55):
+        try:
+            uni = construir_universo() or uni_prev
+        except Exception as e:
+            print(f"Universo WLS fallo ({e.__class__.__name__}: {e}); se mantiene el anterior")
         print("== Actualizacion COMPLETA ==")
         for modo, out in ARCHIVOS.items():
             try:
@@ -1061,6 +1181,11 @@ def auto():
     elif habil or edad_act >= 55 or edad_not >= 55:
         noticias = (not habil) and edad_not >= 55
         print(f"== Actualizacion RAPIDA (precios{' + noticias' if noticias else ''}) ==")
+        if habil:
+            try:
+                uni = rapido_universo(uni_prev)
+            except Exception as e:
+                print(f"Universo rapido fallo: {e}")
         for modo, out in ARCHIVOS.items():
             d = previos.get(modo)
             if not d:
@@ -1073,6 +1198,8 @@ def auto():
     else:
         print("Fin de semana: no hay nada nuevo que publicar todavia")
         publicar = False
+    if publicar and uni:
+        _guardar(uni, "docs/universo.json")
     salida = os.environ.get("GITHUB_OUTPUT")
     if salida:
         with open(salida, "a") as f:

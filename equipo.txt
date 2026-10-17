@@ -15,3 +15,4 @@ KINVB SS, Cartera actual
 EQU SJ, Cartera actual
 ARGX BB, Cartera actual
 2330 TT, Cartera actual
+BG AV, BAWAG: la pidió el equipo
