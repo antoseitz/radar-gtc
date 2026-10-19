@@ -927,22 +927,23 @@ def leer_universo():
     return out
 
 
-def _bajar(tickers, periodo, lote=400):
-    """Descarga en lotes; devuelve (close, volume) con una columna por ticker."""
+def _bajar(tickers, periodo, lote=200, hilos=8, reintentar=True):
+    """Descarga en lotes chicos y con pausas (Yahoo limita si se le piden miles de acciones de golpe).
+    Devuelve (close, volume) con una columna por ticker. Reintenta una vez las que no llegaron."""
     import yfinance as yf
     cls, vols = [], []
     for i in range(0, len(tickers), lote):
         parte = tickers[i:i + lote]
+        df = pd.DataFrame()
         for intento in range(2):
             try:
                 df = yf.download(parte, period=periodo, interval="1d", auto_adjust=True, progress=False,
-                                 threads=True, group_by="column")
+                                 threads=hilos, group_by="column")
                 break
             except Exception as e:
-                print(f"  lote {i}: {e}")
-                df = pd.DataFrame()
-                time.sleep(10)
-        time.sleep(2)  # pausa entre lotes para que Yahoo no limite
+                print(f"  lote {i}: {e.__class__.__name__}")
+                time.sleep(30)
+        time.sleep(4)
         if df.empty:
             continue
         if isinstance(df.columns, pd.MultiIndex):
@@ -950,9 +951,19 @@ def _bajar(tickers, periodo, lote=400):
         else:
             cls.append(df[["Close"]].rename(columns={"Close": parte[0]}))
             vols.append(df[["Volume"]].rename(columns={"Volume": parte[0]}))
-    if not cls:
-        return pd.DataFrame(), pd.DataFrame()
-    return pd.concat(cls, axis=1), pd.concat(vols, axis=1)
+    close = pd.concat(cls, axis=1) if cls else pd.DataFrame()
+    volu = pd.concat(vols, axis=1) if vols else pd.DataFrame()
+    close = close.loc[:, ~close.columns.duplicated()] if not close.empty else close
+    volu = volu.loc[:, ~volu.columns.duplicated()] if not volu.empty else volu
+    faltan = [t for t in tickers if t not in close or close[t].notna().sum() == 0]
+    if reintentar and faltan and len(faltan) < len(tickers):
+        print(f"  {len(faltan)} sin datos: reintento en 45 s, mas despacio...")
+        time.sleep(45)
+        c2, v2 = _bajar(faltan, periodo, lote=100, hilos=4, reintentar=False)
+        if not c2.empty:
+            close = pd.concat([close.drop(columns=[c for c in c2.columns if c in close]), c2], axis=1)
+            volu = pd.concat([volu.drop(columns=[c for c in v2.columns if c in volu]), v2], axis=1)
+    return close, volu
 
 
 UCOLS = ["t", "bbg", "nombre", "bolsa", "precio", "r1d", "r1s", "r1m", "r3m", "vol20", "liq", "rsi", "dist52", "momentum", "fecha"]
@@ -996,12 +1007,30 @@ def construir_universo():
             "cols": UCOLS, "filas": filas}
 
 
+ASIA = (".T", ".KS", ".KQ", ".TW", ".TWO", ".HK", ".SS", ".SZ", ".NS", ".BO", ".JK", ".BK", ".SI", ".KL", ".PS", ".AX", ".NZ", ".VN")
+AMERICA = (".TO", ".SA", ".MX", ".SN", ".CL")
+
+
+def _abierta_ahora(t, h):
+    """Region del ticker con la bolsa abierta (o recien cerrada) a la hora UTC h."""
+    suf = "." + t.rsplit(".", 1)[1] if "." in t else ""
+    if suf in ASIA:
+        return h >= 23 or h < 10
+    if suf == "" or suf in AMERICA:
+        return 13 <= h < 23
+    return 6 <= h < 18          # Europa, Medio Oriente y Africa
+
+
 def rapido_universo(u):
     if not u or not u.get("filas"):
         return u
     ix = {c: i for i, c in enumerate(u["cols"])}
-    ts = [f[0] for f in u["filas"]]
-    close, _ = _bajar(ts, "7d", lote=500)
+    h = datetime.now(timezone.utc).hour
+    ts = [f[0] for f in u["filas"] if _abierta_ahora(f[0], h)]
+    if not ts:
+        return u
+    print(f"Universo rapido: {len(ts)} acciones con su bolsa abierta")
+    close, _ = _bajar(ts, "7d", lote=250, reintentar=False)
     n = 0
     for f in u["filas"]:
         t = f[0]
@@ -1015,6 +1044,7 @@ def rapido_universo(u):
         f[ix["fecha"]] = s_.index[-1].date().isoformat()
         n += 1
     u["generado"] = datetime.now(timezone.utc).isoformat(timespec="minutes")
+    u["rapido"] = u["generado"]
     print(f"Universo WLS rapido: {n} precios")
     return u
 
@@ -1151,10 +1181,6 @@ def auto():
     publicar = True
     uni = uni_prev
     if manual or gen is None or (habil and edad_full >= 55):
-        try:
-            uni = construir_universo() or uni_prev
-        except Exception as e:
-            print(f"Universo WLS fallo ({e.__class__.__name__}: {e}); se mantiene el anterior")
         print("== Actualizacion COMPLETA ==")
         for modo, out in ARCHIVOS.items():
             try:
@@ -1178,10 +1204,16 @@ def auto():
                     _guardar(previos[modo], out)
                 elif modo == "general":
                     raise
+        # el universo completo va al final, para no gastar el limite de Yahoo antes del radar
+        time.sleep(30)
+        try:
+            uni = construir_universo() or uni_prev
+        except Exception as e:
+            print(f"Universo WLS fallo ({e.__class__.__name__}: {e}); se mantiene el anterior")
     elif habil or edad_act >= 55 or edad_not >= 55:
         noticias = (not habil) and edad_not >= 55
         print(f"== Actualizacion RAPIDA (precios{' + noticias' if noticias else ''}) ==")
-        if habil:
+        if habil and _edad_min((uni_prev or {}).get("rapido") or (uni_prev or {}).get("generado") or "") >= 25:
             try:
                 uni = rapido_universo(uni_prev)
             except Exception as e:
