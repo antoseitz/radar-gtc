@@ -972,7 +972,7 @@ def _bajar(tickers, periodo, lote=200, hilos=8, reintentar=True):
 
 
 UCOLS = ["t", "bbg", "nombre", "bolsa", "precio", "r1d", "r1s", "r1m", "r3m", "vol20", "liq", "rsi", "dist52", "momentum", "fecha",
-         "r1y", "vol90", "beta", "pxusd", "corr", "volprop", "vavg20", "volx"]
+         "r1y", "vol90", "beta", "pxusd", "corr", "volprop", "vavg20", "volx", "volx5"]
 
 
 def construir_universo():
@@ -1032,19 +1032,20 @@ def construir_universo():
                       r(px * fac, 2) if fac else None,
                       r(corrs.get(t), 2),
                       r(float(rt90.std()) * np.sqrt(252) * 100 * np.sqrt(max(0.0, 1 - corrs[t] ** 2)), 0) if t in corrs and len(rt90) > 20 else None,
-                      r(va20, 0), r(float(v_.iloc[-1]) / va20, 1) if va20 else None])
+                      r(va20, 0), r(float(v_.iloc[-1]) / va20, 1) if va20 else None,
+                      r(float(v_.iloc[-5:].mean()) / float(v_.iloc[-25:-5].mean()), 1) if v_ is not None and len(v_) > 25 and float(v_.iloc[-25:-5].mean()) > 0 else None])
     print(f"Universo WLS: {len(filas)} de {len(ts)} con precios")
-    ola_stats, ola_t = {}, {}
+    ola_stats, ola_t, ola_s = {}, {}, {}
     try:
         if _OPENS:
             opens = pd.concat(_OPENS, axis=1)
             opens = opens.loc[:, ~opens.columns.duplicated()]
-            ola_stats, ola_t = estudio_olas(close, volu, opens, ts)
+            ola_stats, ola_t, ola_s = estudio_olas(close, volu, opens, ts)
             print(f"Estudio de olas: {sum(v['n'] for v in ola_stats.values())} olas en el ultimo ano")
     except Exception as e:
         print(f"Estudio de olas omitido: {e}")
     _OPENS.clear()
-    return {"olaStats": ola_stats, "olaTicker": ola_t, "generado": datetime.now(timezone.utc).isoformat(timespec="minutes"), "n": len(ts),
+    return {"olaStats": ola_stats, "olaTicker": ola_t, "olaStatsSem": ola_s, "generado": datetime.now(timezone.utc).isoformat(timespec="minutes"), "n": len(ts),
             "completo": datetime.now(timezone.utc).isoformat(timespec="minutes"), "mktvol": r(mktvol, 1),
             "indice": "ACWI (aprox. del WLS)",
             "cols": UCOLS, "filas": filas}
@@ -1073,7 +1074,7 @@ def estudio_olas(close, volu, opens, tickers):
     """Que paso despues de cada 'ola' del ultimo ano (dia >= +3% con volumen >= 1,5x):
     comprando en la apertura siguiente y vendiendo al cierre del dia 1, 2, 3 o 5."""
     H = (1, 2, 3, 5)
-    por_reg, por_t, base = {}, {}, {}
+    por_reg, por_t, base, por_reg_s = {}, {}, {}, {}
     for t in tickers:
         if t not in close or t not in opens or t not in volu:
             continue
@@ -1093,6 +1094,20 @@ def estudio_olas(close, volu, opens, tickers):
             B = np.column_stack([np.clip(cv[idx_all[okb] + h] / ent_all[okb] - 1, -0.5, 1.0) for h in H])
             sb = base.setdefault(_region(t), [np.zeros(len(H)), 0])
             sb[0] += B.sum(axis=0); sb[1] += len(B)
+        # olas de la semana: +8% en 5 sesiones con volumen de la semana >= 1,3x (solo el primer dia de cada racha)
+        r5 = np.r_[[np.nan] * 5, cv[5:] / cv[:-5] - 1]
+        v5 = pd.Series(v).rolling(5).mean().values
+        vb = pd.Series(v).rolling(20).mean().shift(5).values
+        es = (r5 >= 0.08) & (vb > 0) & (v5 / np.where(vb > 0, vb, np.nan) >= 1.3)
+        evs = np.where(es & ~np.r_[False, es[:-1]])[0]
+        evs = evs[evs + 5 < len(cv)]
+        fs = []
+        for i in evs:
+            ent = o[i + 1]
+            if ent > 0:
+                fs.append(np.clip([ent / cv[i] - 1] + [cv[i + h] / ent - 1 for h in H], -0.5, 1.0))
+        if fs:
+            por_reg_s.setdefault(_region(t), []).append(np.array(fs))
         ev = np.where((r1 >= 0.03) & (va > 0) & (v / np.where(va > 0, va, np.nan) >= 1.5))[0]
         ev = ev[ev + 5 < len(cv)]
         if not len(ev):
@@ -1112,6 +1127,17 @@ def estudio_olas(close, volu, opens, tickers):
         por_reg.setdefault(_region(t), []).append(A)
         if len(A) >= 3:
             por_t[t] = [len(A), r(A[:, 1].mean() * 100, 1), r(A[:, 3].mean() * 100, 1), r((A[:, 3] > 0).mean() * 100, 0)]
+    def resumen(dic):
+        out = {}
+        for reg, lst in dic.items():
+            A = np.vstack(lst)
+            med = A.mean(axis=0) * 100
+            b_ = base.get(reg)
+            bm = (b_[0] / b_[1] * 100) if b_ and b_[1] else np.zeros(len(H))
+            out[reg] = {"base1": r(bm[0], 2), "base3": r(bm[2], 2), "base5": r(bm[3], 2), "n": int(len(A)),
+                        "gap": r(med[0], 2), "d1": r(med[1], 2), "d2": r(med[2], 2), "d3": r(med[3], 2), "d5": r(med[4], 2),
+                        "pos1": r((A[:, 1] > 0).mean() * 100, 0), "pos3": r((A[:, 3] > 0).mean() * 100, 0)}
+        return out
     stats = {}
     for reg, lst in por_reg.items():
         A = np.vstack(lst)
@@ -1121,7 +1147,8 @@ def estudio_olas(close, volu, opens, tickers):
         bm = (b_[0] / b_[1] * 100) if b_ and b_[1] else np.zeros(len(H))
         stats[reg] = {"base1": r(bm[0], 2), "base3": r(bm[2], 2), "base5": r(bm[3], 2), "n": int(len(A)), "gap": r(med[0], 2), "d1": r(med[1], 2), "d2": r(med[2], 2), "d3": r(med[3], 2), "d5": r(med[4], 2),
                       "pos1": r((A[:, 1] > 0).mean() * 100, 0), "pos3": r((A[:, 3] > 0).mean() * 100, 0), "pico": H[pico]}
-    return stats, por_t
+    stats_s = resumen(por_reg_s)
+    return stats, por_t, stats_s
 
 
 def ruido_redes(previo=None):
@@ -1198,11 +1225,35 @@ def tendencias(u, previo=None, n=20):
             d["hora"] = datetime.now(timezone.utc).isoformat(timespec="minutes")
         out.append(d)
     u["tendencia"] = out
+    # olas de la semana
+    cs = []
+    for f in u["filas"]:
+        r1s, v5, px, lq, r1d = g(f, "r1s"), g(f, "volx5"), g(f, "pxusd"), g(f, "liq"), g(f, "r1d")
+        if r1s is None or r1s < 8 or (v5 or 0) < 1.3 or (r1d is not None and r1d < -2) or (px is not None and px < 5) or (lq is not None and lq < 2):
+            continue
+        cs.append((r1s * min(v5, 4) ** 0.5, f))
+    cs.sort(key=lambda x: -x[0])
+    viejos_s = {d["t"]: d for d in (previo or {}).get("tendenciaSemana", [])}
+    sem = []
+    for sc, f in cs[:n]:
+        t = f[0]
+        d = {"t": t, "puntos": r(sc, 1)}
+        v = viejos_s.get(t) or viejos.get(t) or next((x for x in out if x["t"] == t), None)
+        if v and v.get("noticias") and _edad_min(v.get("hora") or "") < 360:
+            d["noticias"], d["hora"] = v["noticias"], v["hora"]
+        else:
+            try:
+                d["noticias"] = (leer_noticias(yf.Ticker(t), t, g(f, "nombre")) or [])[:3]
+            except Exception:
+                d["noticias"] = []
+            d["hora"] = datetime.now(timezone.utc).isoformat(timespec="minutes")
+        sem.append(d)
+    u["tendenciaSemana"] = sem
     try:
         u["redes"] = ruido_redes(previo or u)
     except Exception as e:
         print(f"Redes omitidas: {e}")
-    for k in ("olaStats", "olaTicker"):
+    for k in ("olaStats", "olaTicker", "olaStatsSem"):
         if not u.get(k) and (previo or {}).get(k):
             u[k] = previo[k]
     print(f"Tendencias: {len(out)} acciones en ola")
