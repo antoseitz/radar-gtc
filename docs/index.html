@@ -883,21 +883,23 @@ let notiFiltro="todas";
 /* OLAS: acciones del WLS que suben fuerte con volumen inusual en su ultima sesion (aunque su bolsa ya cerro), con titulares */
 const regionDe=t=>{const suf=t.includes(".")?"."+t.split(".").pop():"";return[".T",".KS",".KQ",".TW",".TWO",".HK",".SS",".SZ",".NS",".BO",".JK",".BK",".SI",".KL",".PS",".AX",".NZ",".VN"].includes(suf)?"Asia":(suf===""||[".TO",".SA",".MX",".SN",".CL"].includes(suf))?"América":"Europa y otros"};
 /* duracion estimada: el horizonte (1, 3 o 5 dias) donde la ola le saca mas ventaja a un dia cualquiera */
-function duracionOla(reg){const st=U?.olaStats?.[reg];if(!st)return null;
+let olaVista=load("gtc-olav")||"hoy";
+const olaSem=()=>olaVista==="semana";
+function duracionOla(reg){const st=(olaSem()?U?.olaStatsSem:U?.olaStats)?.[reg];if(!st)return null;
   const ex=[[1,st.d1-(st.base1??0)],[3,st.d3-(st.base3??0)],[5,st.d5-(st.base5??0)]];const best=ex.reduce((a,b)=>b[1]>a[1]?b:a);
   return{...st,dias:best[1]>0.1?best[0]:0,exceso:best[1]}}
 function planOla(o){const reg=regionDe(o.t),d=duracionOla(reg),code=codU(o),e=estadoBolsa(code),pa=BOLSAS[code]?proximaApertura(code):null,b=BOLSAS[code];
   const cierre=b?horaChile(code,b.ses[b.ses.length-1][1]-0.5):"";const own=U?.olaTicker?.[o.t];
   let h=d?(d.dias?`<span class="chip good">~${d.dias} día${d.dias>1?"s":""}</span> <span class="faint">${esc(reg)}: +${fmt(d.exceso,2)}% sobre lo normal</span>`:`<span class="chip warn">Sin ventaja clara</span>`):'<span class="faint">Sin historial aún</span>';
-  if(own)h+=`<span class="faint" style="display:block">Esta acción: ${own[0]} olas, 3 días ${sgn(own[2],1)} (${fmt(own[3],0)}% suben)</span>`;
+  if(own)h+=`<span class="faint" style="display:block">Esta acción${olaSem()?" (olas de 1 día)":""}: ${own[0]} olas, 3 días ${sgn(own[2],1)} (${fmt(own[3],0)}% suben)</span>`;
   if(d&&d.dias)h+=`<span style="display:block;margin-top:2px">${e.fase==="abierta"?"Bolsa abierta: ya está en la ola, no persigas":"Compra: "+(pa?esc(pa.txt):"próxima apertura")}${cierre?` · vende el día ${d.dias} de sesión antes de las ${cierre} (hora Chile)`:""}</span>`;
   return h}
-function olasStatsHTML(){const S=U?.olaStats;if(!S||!Object.keys(S).length)return"";
+function olasStatsHTML(){const S=olaSem()?U?.olaStatsSem:U?.olaStats;if(!S||!Object.keys(S).length)return"";
   return`<div class="tablebox" style="margin-top:4px"><table><thead><tr><th>Región</th><th class="n">Olas en 1 año</th><th class="n" title="Apertura del día siguiente vs cierre del día de la ola (no se puede capturar: la orden se ejecuta en la apertura)">Gap al abrir</th><th class="n">Día 1</th><th class="n">Día 3</th><th class="n">Día 5</th><th class="n" title="Lo mismo comprando un día cualquiera">Día cualquiera (1 / 3 / 5)</th><th class="n">% que sube (1 / 3 días)</th><th>Duración estimada</th></tr></thead><tbody>
   ${Object.keys(S).sort().map(reg=>{const d=duracionOla(reg);return`<tr><td><b>${esc(reg)}</b></td><td class="n">${d.n.toLocaleString("es-CL")}</td><td class="n">${pct(d.gap,2)}</td><td class="n">${pct(d.d1,2)}</td><td class="n">${pct(d.d3,2)}</td><td class="n">${pct(d.d5,2)}</td>
     <td class="n faint">${sgn(d.base1,2)} / ${sgn(d.base3,2)} / ${sgn(d.base5,2)}</td><td class="n">${fmt(d.pos1,0)}% / ${fmt(d.pos3,0)}%</td>
     <td>${d.dias?`<span class="chip good">~${d.dias} día${d.dias>1?"s":""} (+${fmt(d.exceso,2)}% sobre lo normal)</span>`:`<span class="chip warn">Sin ventaja clara</span>`}</td></tr>`}).join("")}</tbody></table></div>
-  <p class="faint" style="font-size:12px;margin:0">Cómo se calcula: cada vez que una acción del WLS subió ≥ +3% con volumen ≥ 1,5× en el último año, se simula comprar en la apertura del día siguiente y vender al cierre del día 1, 3 o 5. Son promedios históricos con mucha dispersión, no una garantía.</p>`}
+  <p class="faint" style="font-size:12px;margin:0">Cómo se calcula: cada vez que una acción del WLS ${olaSem()?"subió ≥ +8% en 5 sesiones con volumen de la semana ≥ 1,3× (primer día de cada racha)":"subió ≥ +3% en un día con volumen ≥ 1,5×"} en el último año, se simula comprar en la apertura siguiente y vender al cierre del día 1, 3 o 5. Son promedios históricos con mucha dispersión, no una garantía.</p>`}
 /* RUIDO EN REDES (solo EE.UU.): menciones en Reddit (ApeWisdom) y tendencias de StockTwits */
 function redesDe(k){const R=U?.redes?.tickers;if(!R)return null;const o=U.porB?.get(claveTicker(k));if(!o||codU(o)!=="US")return null;
   const x=R[o.t]||R[o.t.replace(/-/g,".")];if(!x)return null;
@@ -915,10 +917,12 @@ function redesHTML(){const R=U?.redes;
   </div>
   ${top.length?`<div style="display:flex;flex-wrap:wrap;gap:6px"><span class="label">Más comentadas hoy que están en el WLS:</span>${top.map(x=>`<span class="chip" title="${x.r.m} menciones en 24 h">#${x.r.rank} ${esc(x.o.bbg.replace(" US",""))}${x.r.sube?" ↑":""}</span>`).join("")}</div>`:""}</details>`}
 function olasHTML(){
-  if(!U||!U.tendencia||!U.tendencia.length)return"";
+  if(!U||(!U.tendencia?.length&&!U.tendenciaSemana?.length))return"";
   const m=new Map(U.filas.map(o=>[o.t,o])),enC=new Set(cart.items.map(i=>i.t));
-  const L=U.tendencia.map(d=>({...d,o:m.get(d.t)})).filter(d=>d.o).slice(0,12);
-  return`<section class="r-sec"><div class="r-head"><span class="r-num">★</span><div><h2>Olas del mercado: acciones del WLS en tendencia</h2><p>Suben fuerte en su última sesión (≥ +3%) con volumen inusual (≥ 1,5× su promedio), precio ≥ US$5 y buena liquidez. Incluye bolsas que ya cerraron. Abajo de cada una, los titulares que podrían explicar el movimiento.</p></div></div>
+  const L=(olaSem()?U.tendenciaSemana:U.tendencia).map(d=>({...d,o:m.get(d.t)})).filter(d=>d.o).slice(0,12);
+  const tabs=`<div class="seg" role="tablist" style="align-self:flex-start"><button type="button" data-olav="hoy" aria-selected="${!olaSem()}">Ola de hoy · última sesión (${U.tendencia.length})</button><button type="button" data-olav="semana" aria-selected="${olaSem()}">Ola de la semana · 5 sesiones (${U.tendenciaSemana.length})</button></div>`;
+  return`<section class="r-sec"><div class="r-head"><span class="r-num">★</span><div><h2>Olas del mercado: acciones del WLS en tendencia</h2><p>${olaSem()?"Suben ≥ +8% en las últimas 5 sesiones con volumen de la semana ≥ 1,3× su promedio, sin caer fuerte en la última sesión":"Suben ≥ +3% en su última sesión (hoy o el último día que abrió su bolsa) con volumen ≥ 1,5× su promedio"}, precio ≥ US$5 y buena liquidez. Incluye bolsas que ya cerraron. Al lado, los titulares que podrían explicar el movimiento.</p></div></div>
+  ${tabs}
   ${olasStatsHTML()}
   ${redesHTML()}
   <div class="tablebox"><table><thead><tr><th>Acción · bolsa</th><th class="n">Día</th><th class="n" title="Volumen de la última sesión respecto a su promedio de 20 días">Volumen</th><th class="n">Semana</th><th class="n">Mes</th><th>vs WLS</th><th title="Solo EE.UU.: menciones en Reddit (ApeWisdom) y tendencias de StockTwits">Redes (EE.UU.)</th><th title="Promedio histórico de olas como esta en su región (y en la propia acción si tuvo 3 o más)">Duración estimada y plan</th><th>¿Por qué?</th><th></th></tr></thead><tbody>
@@ -997,7 +1001,7 @@ function ideas2(){
     <p class="muted" style="margin:-4px 0 0;font-size:13.5px">${desc}</p>
     ${items.length?`<div class="ilist2">${items.map(a=>`<button class="irow2" type="button" data-open="${a.t}">${av(a)}<span class="nm2"><b>${esc(nombreCorto(a.nombre,a.t))}</b><span>${a.t} · ${esc(a.tema)}</span></span><span class="why2">${typeof why==="function"?why(a):why}</span><span class="sp2">${spark(a.hist,110,26)}</span><span class="val"><b class="${cls}">${val(a)}</b><span>${typeof lbl==="function"?lbl(a):lbl}</span></span></button>`).join("")}</div>`:'<div class="ag-empty">Nada destacado hoy en este criterio.</div>'}`;
 }
-function renderResumenBind(){$("#tab-resumen").querySelectorAll("[data-uadd]").forEach(btn=>btn.onclick=e=>{e.stopPropagation();const o=U&&U.filas.find(x=>x.t===btn.dataset.uadd);if(!o)return;stubU(o);toggleCart(o.t)});$("#tab-resumen").querySelectorAll("[data-noti]").forEach(b=>b.onclick=()=>{notiFiltro=b.dataset.noti;$("#s-news").outerHTML=secNoticias();renderResumenBind()});$("#tab-resumen").querySelectorAll("[data-idea]").forEach(b=>b.onclick=()=>{ideaTab=b.dataset.idea;const sec=$("#s-ideas");const head=sec.querySelector(".r-head").outerHTML;sec.innerHTML=head+ideas2();renderResumenBind()})}
+function renderResumenBind(){$("#tab-resumen").querySelectorAll("[data-olav]").forEach(b=>b.onclick=()=>{olaVista=b.dataset.olav;store("gtc-olav",olaVista);const so=$("#s-olas");if(so){so.innerHTML=olasHTML();renderResumenBind()}});$("#tab-resumen").querySelectorAll("[data-uadd]").forEach(btn=>btn.onclick=e=>{e.stopPropagation();const o=U&&U.filas.find(x=>x.t===btn.dataset.uadd);if(!o)return;stubU(o);toggleCart(o.t)});$("#tab-resumen").querySelectorAll("[data-noti]").forEach(b=>b.onclick=()=>{notiFiltro=b.dataset.noti;$("#s-news").outerHTML=secNoticias();renderResumenBind()});$("#tab-resumen").querySelectorAll("[data-idea]").forEach(b=>b.onclick=()=>{ideaTab=b.dataset.idea;const sec=$("#s-ideas");const head=sec.querySelector(".r-head").outerHTML;sec.innerHTML=head+ideas2();renderResumenBind()})}
 function macroResumen(){
   const ev=(D.macro||[]).map(e=>({...e,dias:diasHasta(e.fecha)})).filter(e=>e.dias>=-1).slice(0,5);
   const A=D.acciones.filter(a=>a.sensTasa!=null&&a.corrTasa!=null&&Math.abs(a.corrTasa)>=0.2);
@@ -1932,7 +1936,7 @@ setInterval(()=>{if(!document.hidden)sincronizarEquipo(false)},5*60*1000);
 let U=null,vistaAcc=load("gtc-vista")||"radar",uF={q:"",bolsa:"",liq:false,abiertas:false,n:100},uSort={k:"liq",d:-1};
 const UCOLS_N={precio:1,r1d:1,r1s:1,r1m:1,r3m:1,vol20:1,liq:1,rsi:1,dist52:1};
 function cargarU(){return fetch("universo.json?v="+Date.now(),{cache:"no-store"}).then(r=>r.ok?r.json():null).then(j=>{
-  if(!j||!j.filas)return;U={generado:j.generado,n:j.n,mktvol:j.mktvol,indice:j.indice,tendencia:j.tendencia||[],olaStats:j.olaStats||{},olaTicker:j.olaTicker||{},redes:j.redes||null,filas:j.filas.map(f=>{const o={};j.cols.forEach((c,i)=>o[c]=f[i]);return o})};
+  if(!j||!j.filas)return;U={generado:j.generado,n:j.n,mktvol:j.mktvol,indice:j.indice,tendencia:j.tendencia||[],olaStats:j.olaStats||{},olaTicker:j.olaTicker||{},redes:j.redes||null,tendenciaSemana:j.tendenciaSemana||[],olaStatsSem:j.olaStatsSem||{},filas:j.filas.map(f=>{const o={};j.cols.forEach((c,i)=>o[c]=f[i]);return o})};
   U.porB=new Map(U.filas.map(o=>[claveTicker(o.bbg),o]));
   stubsCartera();renderAcciones();renderCartera();renderBBG();renderPort();const so=$("#s-olas");if(so){so.innerHTML=olasHTML();renderResumenBind()}}).catch(()=>{})}
 /* Relacion con el indice (ACWI como aproximacion del WLS): beta, correlacion y volatilidad propia */
