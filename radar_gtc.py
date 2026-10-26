@@ -927,6 +927,9 @@ def leer_universo():
     return out
 
 
+_OPENS = []   # precios de apertura de la ultima descarga grande (para estudiar cuanto duran las olas)
+
+
 def _bajar(tickers, periodo, lote=200, hilos=8, reintentar=True):
     """Descarga en lotes chicos y con pausas (Yahoo limita si se le piden miles de acciones de golpe).
     Devuelve (close, volume) con una columna por ticker. Reintenta una vez las que no llegaron."""
@@ -948,6 +951,8 @@ def _bajar(tickers, periodo, lote=200, hilos=8, reintentar=True):
             continue
         if isinstance(df.columns, pd.MultiIndex):
             cls.append(df["Close"]); vols.append(df["Volume"])
+            if "Open" in df.columns.get_level_values(0):
+                _OPENS.append(df["Open"])
         else:
             cls.append(df[["Close"]].rename(columns={"Close": parte[0]}))
             vols.append(df[["Volume"]].rename(columns={"Volume": parte[0]}))
@@ -966,7 +971,8 @@ def _bajar(tickers, periodo, lote=200, hilos=8, reintentar=True):
     return close, volu
 
 
-UCOLS = ["t", "bbg", "nombre", "bolsa", "precio", "r1d", "r1s", "r1m", "r3m", "vol20", "liq", "rsi", "dist52", "momentum", "fecha"]
+UCOLS = ["t", "bbg", "nombre", "bolsa", "precio", "r1d", "r1s", "r1m", "r3m", "vol20", "liq", "rsi", "dist52", "momentum", "fecha",
+         "r1y", "vol90", "beta", "pxusd", "corr", "volprop", "vavg20", "volx"]
 
 
 def construir_universo():
@@ -974,8 +980,23 @@ def construir_universo():
     if not U:
         return None
     ts = list(U)
+    _OPENS.clear()
     print(f"Universo WLS: descargando {len(ts)} acciones...")
-    close, volu = _bajar(ts, "1y")
+    close, volu = _bajar(ts + ["ACWI"], "1y")
+    betas, corrs, mktvol = {}, {}, None
+    if "ACWI" in close:   # beta contra el mercado global, ultimos ~120 dias (calculo vectorizado)
+        rets = close.ffill(limit=2).pct_change(fill_method=None).tail(120)
+        m_ = rets["ACWI"]
+        ok = rets.notna() & m_.notna().values[:, None]
+        rc, mc = rets.where(ok), pd.DataFrame(np.repeat(m_.values[:, None], rets.shape[1], 1), index=rets.index, columns=rets.columns).where(ok)
+        n_ = ok.sum()
+        cov = ((rc - rc.mean()) * (mc - mc.mean())).sum() / (n_ - 1)
+        var_m = mc.var()
+        b_ = (cov / var_m).where(n_ > 40)
+        betas = {k: float(v) for k, v in b_.items() if pd.notna(v)}
+        c_ = (cov / (rc.std() * mc.std())).where(n_ > 40)
+        corrs = {k: float(v) for k, v in c_.items() if pd.notna(v)}
+        mktvol = float(m_.dropna().tail(63).std() * np.sqrt(252) * 100)
     monedas = sorted({SUF2MON[s_][0] for t in ts for s_ in SUF2MON if t.endswith(s_)})
     fxc, _ = _bajar([f"{m}=X" for m in monedas], "5d")
     fx = {m: float(fxc[f"{m}=X"].dropna().iloc[-1]) for m in monedas if f"{m}=X" in fxc and fxc[f"{m}=X"].notna().any()}
@@ -998,12 +1019,34 @@ def construir_universo():
         except Exception:
             rs = None
         bbg, nom = U[t]
+        r1y = (px / float(s_.iloc[0]) - 1) * 100 if len(s_) > 200 else None
+        va20 = float(v_.iloc[-21:-1].mean()) if v_ is not None and len(v_) > 21 else None
+        va20 = va20 if va20 and va20 > 0 else None
+        rt90 = s_.pct_change().tail(63)
+        beta = betas.get(t)
         filas.append([t, bbg, nom, bbg.split()[-1], r(px), r(var(1), 1), r(var(5), 1), r(r1m, 1), r(r3m, 1),
                       r(float(rt.std()) * np.sqrt(252) * 100, 0) if len(rt) > 5 else None, r(liq, 1), r(rs, 0),
                       r((px / float(s_.max()) - 1) * 100, 1), cuadrante(r(r1m, 1), r(r3m, 1)) if r1m is not None and r3m is not None else None,
-                      s_.index[-1].date().isoformat()])
+                      s_.index[-1].date().isoformat(),
+                      r(r1y, 1), r(float(rt90.std()) * np.sqrt(252) * 100, 0) if len(rt90) > 20 else None, r(beta, 2),
+                      r(px * fac, 2) if fac else None,
+                      r(corrs.get(t), 2),
+                      r(float(rt90.std()) * np.sqrt(252) * 100 * np.sqrt(max(0.0, 1 - corrs[t] ** 2)), 0) if t in corrs and len(rt90) > 20 else None,
+                      r(va20, 0), r(float(v_.iloc[-1]) / va20, 1) if va20 else None])
     print(f"Universo WLS: {len(filas)} de {len(ts)} con precios")
-    return {"generado": datetime.now(timezone.utc).isoformat(timespec="minutes"), "n": len(ts),
+    ola_stats, ola_t = {}, {}
+    try:
+        if _OPENS:
+            opens = pd.concat(_OPENS, axis=1)
+            opens = opens.loc[:, ~opens.columns.duplicated()]
+            ola_stats, ola_t = estudio_olas(close, volu, opens, ts)
+            print(f"Estudio de olas: {sum(v['n'] for v in ola_stats.values())} olas en el ultimo ano")
+    except Exception as e:
+        print(f"Estudio de olas omitido: {e}")
+    _OPENS.clear()
+    return {"olaStats": ola_stats, "olaTicker": ola_t, "generado": datetime.now(timezone.utc).isoformat(timespec="minutes"), "n": len(ts),
+            "completo": datetime.now(timezone.utc).isoformat(timespec="minutes"), "mktvol": r(mktvol, 1),
+            "indice": "ACWI (aprox. del WLS)",
             "cols": UCOLS, "filas": filas}
 
 
@@ -1021,6 +1064,151 @@ def _abierta_ahora(t, h):
     return 6 <= h < 18          # Europa, Medio Oriente y Africa
 
 
+def _region(t):
+    suf = "." + t.rsplit(".", 1)[1] if "." in t else ""
+    return "Asia" if suf in ASIA else "América" if (suf == "" or suf in AMERICA) else "Europa y otros"
+
+
+def estudio_olas(close, volu, opens, tickers):
+    """Que paso despues de cada 'ola' del ultimo ano (dia >= +3% con volumen >= 1,5x):
+    comprando en la apertura siguiente y vendiendo al cierre del dia 1, 2, 3 o 5."""
+    H = (1, 2, 3, 5)
+    por_reg, por_t, base = {}, {}, {}
+    for t in tickers:
+        if t not in close or t not in opens or t not in volu:
+            continue
+        c = close[t].dropna()
+        if len(c) < 60:
+            continue
+        o = opens[t].reindex(c.index).values.astype(float)
+        v = volu[t].reindex(c.index).fillna(0).values.astype(float)
+        cv = c.values.astype(float)
+        r1 = np.r_[np.nan, cv[1:] / cv[:-1] - 1]
+        va = pd.Series(v).rolling(20).mean().shift(1).values
+        # linea base: lo mismo para cualquier dia (para ver si la ola agrega algo)
+        idx_all = np.arange(20, len(cv) - 5)
+        ent_all = o[idx_all + 1]
+        okb = ent_all > 0
+        if okb.any():
+            B = np.column_stack([np.clip(cv[idx_all[okb] + h] / ent_all[okb] - 1, -0.5, 1.0) for h in H])
+            sb = base.setdefault(_region(t), [np.zeros(len(H)), 0])
+            sb[0] += B.sum(axis=0); sb[1] += len(B)
+        ev = np.where((r1 >= 0.03) & (va > 0) & (v / np.where(va > 0, va, np.nan) >= 1.5))[0]
+        ev = ev[ev + 5 < len(cv)]
+        if not len(ev):
+            continue
+        filas = []
+        for i in ev:
+            ent = o[i + 1]
+            if not (ent > 0):
+                continue
+            gap = ent / cv[i] - 1
+            fw = [cv[i + h] / ent - 1 for h in H]
+            vals = np.clip([gap] + fw, -0.5, 1.0)
+            filas.append(vals)
+        if not filas:
+            continue
+        A = np.array(filas)
+        por_reg.setdefault(_region(t), []).append(A)
+        if len(A) >= 3:
+            por_t[t] = [len(A), r(A[:, 1].mean() * 100, 1), r(A[:, 3].mean() * 100, 1), r((A[:, 3] > 0).mean() * 100, 0)]
+    stats = {}
+    for reg, lst in por_reg.items():
+        A = np.vstack(lst)
+        med = A.mean(axis=0) * 100
+        pico = int(np.argmax(med[1:]))
+        b_ = base.get(reg)
+        bm = (b_[0] / b_[1] * 100) if b_ and b_[1] else np.zeros(len(H))
+        stats[reg] = {"base1": r(bm[0], 2), "base3": r(bm[2], 2), "base5": r(bm[3], 2), "n": int(len(A)), "gap": r(med[0], 2), "d1": r(med[1], 2), "d2": r(med[2], 2), "d3": r(med[3], 2), "d5": r(med[4], 2),
+                      "pos1": r((A[:, 1] > 0).mean() * 100, 0), "pos3": r((A[:, 3] > 0).mean() * 100, 0), "pico": H[pico]}
+    return stats, por_t
+
+
+def ruido_redes(previo=None):
+    """Menciones en redes de acciones de EE.UU. (solo EE.UU.: las fuentes publicas gratuitas no cubren Asia ni Europa).
+    - ApeWisdom (apewisdom.io): cuenta menciones en Reddit (r/wallstreetbets, r/stocks, etc.) en las ultimas 24 h.
+    - StockTwits (stocktwits.com): lista de simbolos en tendencia.
+    Si una fuente no responde, se mantiene lo ultimo que se tenia."""
+    import urllib.request
+    prev = (previo or {}).get("redes") or {}
+    if prev and _edad_min(prev.get("hora") or "") < 55:
+        return prev
+    def get(url):
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (radar-gtc)", "Accept": "application/json"})
+        with urllib.request.urlopen(req, timeout=20) as r_:
+            return json.loads(r_.read().decode("utf-8"))
+    tk, fuentes = {}, []
+    try:
+        for pag in (1, 2):
+            j = get(f"https://apewisdom.io/api/v1.0/filter/all-stocks/page/{pag}")
+            for x in j.get("results", []):
+                sym = str(x.get("ticker", "")).upper().replace(".", "-")
+                if sym:
+                    tk[sym] = {"m": int(x.get("mentions") or 0), "m24": int(x.get("mentions_24h_ago") or 0),
+                               "rank": int(x.get("rank") or 999)}
+        fuentes.append("Reddit vía ApeWisdom")
+    except Exception as e:
+        print(f"ApeWisdom no disponible: {e}")
+    try:
+        j = get("https://api.stocktwits.com/api/2/trending/symbols.json")
+        for i, x in enumerate(j.get("symbols", [])):
+            sym = str(x.get("symbol", "")).upper().replace(".", "-")
+            if sym:
+                tk.setdefault(sym, {"m": 0, "m24": 0, "rank": 999})["st"] = i + 1
+        fuentes.append("StockTwits")
+    except Exception as e:
+        print(f"StockTwits no disponible: {e}")
+    if not tk:
+        return prev
+    print(f"Redes: {len(tk)} acciones de EE.UU. con menciones ({', '.join(fuentes)})")
+    return {"hora": datetime.now(timezone.utc).isoformat(timespec="minutes"), "fuentes": fuentes, "tickers": tk}
+
+
+def tendencias(u, previo=None, n=20):
+    """Acciones del WLS 'en ola': suben fuerte en su ultima sesion con volumen inusual (aunque su bolsa ya cerro).
+    Para cada una se buscan titulares que expliquen el movimiento."""
+    if not u or not u.get("filas"):
+        return u
+    import yfinance as yf
+    ix = {c: i for i, c in enumerate(u["cols"])}
+    g = lambda f, c: f[ix[c]] if c in ix else None
+    cand = []
+    for f in u["filas"]:
+        r1d, vx, px, lq = g(f, "r1d"), g(f, "volx"), g(f, "pxusd"), g(f, "liq")
+        if r1d is None or r1d < 3 or (px is not None and px < 5) or (lq is not None and lq < 2):
+            continue
+        vx = vx or 1.0
+        if vx < 1.5:
+            continue
+        cand.append((r1d * min(vx, 6) ** 0.5 + 0.2 * (g(f, "r1s") or 0), f))
+    cand.sort(key=lambda x: -x[0])
+    viejos = {d["t"]: d for d in (previo or {}).get("tendencia", [])}
+    out = []
+    for sc, f in cand[:n]:
+        t = f[0]
+        d = {"t": t, "puntos": r(sc, 1)}
+        v = viejos.get(t)
+        if v and v.get("noticias") and _edad_min(v.get("hora") or "") < 360:
+            d["noticias"], d["hora"] = v["noticias"], v["hora"]
+        else:
+            try:
+                d["noticias"] = (leer_noticias(yf.Ticker(t), t, g(f, "nombre")) or [])[:3]
+            except Exception:
+                d["noticias"] = []
+            d["hora"] = datetime.now(timezone.utc).isoformat(timespec="minutes")
+        out.append(d)
+    u["tendencia"] = out
+    try:
+        u["redes"] = ruido_redes(previo or u)
+    except Exception as e:
+        print(f"Redes omitidas: {e}")
+    for k in ("olaStats", "olaTicker"):
+        if not u.get(k) and (previo or {}).get(k):
+            u[k] = previo[k]
+    print(f"Tendencias: {len(out)} acciones en ola")
+    return u
+
+
 def rapido_universo(u):
     if not u or not u.get("filas"):
         return u
@@ -1030,7 +1218,7 @@ def rapido_universo(u):
     if not ts:
         return u
     print(f"Universo rapido: {len(ts)} acciones con su bolsa abierta")
-    close, _ = _bajar(ts, "7d", lote=250, reintentar=False)
+    close, volq = _bajar(ts, "7d", lote=250, reintentar=False)
     n = 0
     for f in u["filas"]:
         t = f[0]
@@ -1042,6 +1230,10 @@ def rapido_universo(u):
         f[ix["precio"]] = r(float(s_.iloc[-1]))
         f[ix["r1d"]] = r((float(s_.iloc[-1]) / float(s_.iloc[-2]) - 1) * 100, 1)
         f[ix["fecha"]] = s_.index[-1].date().isoformat()
+        if "volx" in ix and f[ix["vavg20"]] and t in volq:
+            vv = volq[t].reindex(s_.index).dropna()
+            if len(vv):
+                f[ix["volx"]] = r(float(vv.iloc[-1]) / f[ix["vavg20"]], 1)
         n += 1
     u["generado"] = datetime.now(timezone.utc).isoformat(timespec="minutes")
     u["rapido"] = u["generado"]
@@ -1097,6 +1289,28 @@ def noticias_mercado():
     return out
 
 
+# ETF de cada pais (cotiza en EE.UU.): su movimiento de hoy anticipa como abrira esa bolsa
+PROXY_ETF = {"KS": "EWY", "KQ": "EWY", "JP": "EWJ", "JT": "EWJ", "TT": "EWT", "HK": "EWH", "C1": "MCHI", "C2": "MCHI",
+             "CH": "MCHI", "IN": "INDA", "IS": "INDA", "IB": "INDA", "NA": "EWN", "LN": "EWU", "GR": "EWG", "GY": "EWG",
+             "FP": "EWQ", "SW": "EWL", "SE": "EWL", "AU": "EWA", "CN": "EWC", "CT": "EWC", "MK": "EWM", "SJ": "EZA",
+             "SM": "EWP", "IM": "EWI", "SS": "EWD", "BZ": "EWZ", "MM": "EWW", "CI": "ECH", "IJ": "EIDO", "TB": "THD",
+             "PM": "EPHE", "SP": "EWS", "TI": "TUR", "AB": "KSA", "PW": "EPOL", "IT": "EIS", "DC": "EDEN", "NO": "ENOR",
+             "FH": "EFNL", "AV": "EWO", "BB": "EWK", "ID": "EIRL", "VN": "VNM", "NZ": "ENZL", "QD": "QAT", "US": "ES=F"}
+
+
+def proxies_hoy(close=None):
+    """% de hoy de cada ETF pais (y del futuro del S&P 500 para EE.UU.)."""
+    ts = sorted(set(PROXY_ETF.values()))
+    if close is None:
+        close, _ = _bajar(ts, "7d", lote=100, reintentar=False)
+    out = {}
+    for t in ts:
+        if t in close and close[t].dropna().size >= 2:
+            s_ = close[t].dropna()
+            out[t] = r((float(s_.iloc[-1]) / float(s_.iloc[-2]) - 1) * 100, 2)
+    return out
+
+
 def solo_futuros():
     import yfinance as yf
     cl = yf.download(list(FUTUROS), period="7d", interval="1d", auto_adjust=True, progress=False, threads=True)["Close"]
@@ -1113,7 +1327,7 @@ def rapido(datos, con_noticias):
     import yfinance as yf
     acc = [a["t"] for a in datos["acciones"]]
     mer = [m["t"] for m in datos.get("mercado", []) if m.get("tipo") != "tasa"]
-    todos = list(dict.fromkeys(acc + mer + list(FUTUROS)))
+    todos = list(dict.fromkeys(acc + mer + list(FUTUROS) + sorted(set(PROXY_ETF.values()))))
     df = yf.download(todos, period="7d", interval="1d", auto_adjust=True, progress=False, threads=True)
     cl = df["Close"] if not df.empty else None
     def ult2(t):
@@ -1144,6 +1358,10 @@ def rapido(datos, con_noticias):
         if px is not None:
             fut.append({"t": t, "nombre": nom, "precio": r(px), "r1d": r(ch, 2)})
     datos["futuros"] = fut
+    try:
+        datos["proxies"] = proxies_hoy(cl) or datos.get("proxies", {})
+    except Exception:
+        pass
     print(f"Precios rapidos: {n} de {len(acc)} acciones")
     if con_noticias:
         print("Actualizando noticias...")
@@ -1194,6 +1412,10 @@ def auto():
                     d["futuros"] = solo_futuros()
                 except Exception:
                     d["futuros"] = []
+                try:
+                    d["proxies"] = proxies_hoy()
+                except Exception:
+                    d["proxies"] = {}
                 d["noticiasMercado"] = noticias_mercado()
                 d["noticiasHora"] = d["generado"]
                 _guardar(d, out)
@@ -1205,9 +1427,13 @@ def auto():
                 elif modo == "general":
                     raise
         # el universo completo va al final, para no gastar el limite de Yahoo antes del radar
-        time.sleep(30)
         try:
-            uni = construir_universo() or uni_prev
+            if manual or _edad_min((uni_prev or {}).get("completo") or "") >= 360:
+                time.sleep(30)
+                uni = construir_universo() or uni_prev
+            elif habil:
+                uni = rapido_universo(uni_prev)
+            uni = tendencias(uni, uni_prev)
         except Exception as e:
             print(f"Universo WLS fallo ({e.__class__.__name__}: {e}); se mantiene el anterior")
     elif habil or edad_act >= 55 or edad_not >= 55:
@@ -1215,7 +1441,7 @@ def auto():
         print(f"== Actualizacion RAPIDA (precios{' + noticias' if noticias else ''}) ==")
         if habil and _edad_min((uni_prev or {}).get("rapido") or (uni_prev or {}).get("generado") or "") >= 25:
             try:
-                uni = rapido_universo(uni_prev)
+                uni = tendencias(rapido_universo(uni_prev), uni_prev)
             except Exception as e:
                 print(f"Universo rapido fallo: {e}")
         for modo, out in ARCHIVOS.items():
