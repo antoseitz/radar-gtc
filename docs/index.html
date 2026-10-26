@@ -655,7 +655,10 @@ function timingDe(gap,code,carga){
     :gap>=1?{txt:"Comprar antes",cls:"good",tip:`Se espera que abra +${fmt(gap,1)}%: conviene entrar antes de la apertura.`}
     :{txt:"Normal",cls:"",tip:"Gap chico: da lo mismo comprar antes o después de que abra."}}
 const chipTiming=x=>x?`<span class="chip ${x.cls}" title="${esc(x.tip)}" style="white-space:nowrap">${esc(x.txt)}</span>`:'<span class="faint">–</span>';
-function proximaApertura(code,now=new Date()){const b=BOLSAS[code],dias=b.dias||[1,2,3,4,5],p=partesTZ(b.tz,now),a0=b.ses[0][0];
+const _cachePA=new Map();
+function proximaApertura(code,now){const ms=now?now.getTime():Date.now(),k=code+"|"+Math.floor(ms/6e4)+"|"+(now?1:0);let v=_cachePA.get(k);if(!v){if(_cachePA.size>2000)_cachePA.clear();v=proximaApertura0(code,new Date(ms));_cachePA.set(k,v)}
+  return now?v:{...v,horas:v.horas==null?null:v.horas-(Date.now()-ms)/36e5}}
+function proximaApertura0(code,now=new Date()){const b=BOLSAS[code],dias=b.dias||[1,2,3,4,5],p=partesTZ(b.tz,now),a0=b.ses[0][0];
   for(let k=0;k<9;k++){const base=new Date(Date.UTC(p.y,p.m-1,p.d+k,12));const dow=base.getUTCDay();if(!dias.includes(dow))continue;
     const H=Math.floor(a0),M=Math.round((a0-H)*60);let inst=Date.UTC(p.y,p.m-1,p.d+k,H,M)-offsetTZ(b.tz,base)*6e4;
     if(inst<=now.getTime())continue;
@@ -665,7 +668,9 @@ function proximaApertura(code,now=new Date()){const b=BOLSAS[code],dias=b.dias||
     const dia=dd===0?"hoy":dd===1?"mañana":["dom","lun","mar","mié","jue","vie","sáb"][en.dow];
     return{txt:`${dia} ${hh}`,horas:(inst-now.getTime())/36e5}}
   return{txt:"–",horas:null}}
-function estadoBolsa(code,now=new Date()){const b=BOLSAS[code];if(!b)return{fase:"?",txt:"Horario desconocido"};
+const _cacheEB=new Map();
+function estadoBolsa(code,now){if(now)return estadoBolsa0(code,now);const k=code+"|"+Math.floor(Date.now()/6e4);let v=_cacheEB.get(k);if(!v){if(_cacheEB.size>500)_cacheEB.clear();v=estadoBolsa0(code);_cacheEB.set(k,v)}return v}
+function estadoBolsa0(code,now=new Date()){const b=BOLSAS[code];if(!b)return{fase:"?",txt:"Horario desconocido"};
   const p=partesTZ(b.tz,now),dias=b.dias||[1,2,3,4,5],hab=dias.includes(p.dow),h=p.h;
   const fmtDur=x=>{const m=Math.max(1,Math.round(x*60));return m>=60?`${Math.floor(m/60)} h ${m%60} min`:`${m} min`};
   if(hab){for(const[i,[a,z]]of b.ses.entries()){if(h>=a&&h<z)return{fase:"abierta",txt:i<b.ses.length-1?`Abierta · pausa a las ${horaChile(code,z)} (en ${fmtDur(z-h)}) · cierra ${horaChile(code,b.ses[b.ses.length-1][1])}`:`Abierta · cierra ${horaChile(code,z)} (en ${fmtDur(z-h)})`}}
@@ -1334,7 +1339,7 @@ function procesarFilas(rows,origen){
 function terminarCarga(n,origen){
   if(!n)return;
   BBG.fecha=new Date().toISOString();BBG.archivo=origen;
-  try{localStorage.setItem("gtc-bbg",JSON.stringify(BBG))}catch(e){toast("El archivo es muy grande para guardarlo: se usará solo hasta que cierres la página.")}
+  try{localStorage.setItem("gtc-bbg",JSON.stringify(BBG,(k,v)=>v===null?undefined:v))}catch(e){toast("El archivo es muy grande para guardarlo: se usará solo hasta que cierres la página.")}
   aplicarBBG();renderAll(false);marcarCambio();
 }
 async function cargarBBG(file){
@@ -1392,8 +1397,13 @@ function aplicarBBG(){
 }
 
 /* ---------- RANKING con los datos de Bloomberg (todo se calcula aqui, en tu navegador) ---------- */
-let rkF=Object.assign({reg:"ALL",win:true,liq:true,cap:"ALL",mkt:"ALL",n:30},load("gtc-rk")||{});
+let rkF=Object.assign({reg:"ALL",win:true,liq:true,cap:"ALL",mkt:"ALL",n:30,pxmin:5},load("gtc-rk")||{});
+const COMISION=0.005; // USD por accion, en cada compra y cada venta (desde el 26-oct-2026)
+const comIV=px=>px>0?2*COMISION/px*100:null; // % del monto que se va en comision ida y vuelta
 const PESOS_RK=[["mov",.35,"Cuánto se mueve (volatilidad)"],["r1m",.25,"Momentum: cuánto subió el último mes"],["si",.15,"Short interest (posible squeeze)"],["beta",.10,"Beta: amplifica al mercado"],["sent",.10,"Tono de las noticias"]];
+const PROXY_ETF={KS:"EWY",KQ:"EWY",JP:"EWJ",JT:"EWJ",TT:"EWT",HK:"EWH",C1:"MCHI",C2:"MCHI",CH:"MCHI",IN:"INDA",IS:"INDA",IB:"INDA",NA:"EWN",LN:"EWU",GR:"EWG",GY:"EWG",FP:"EWQ",SW:"EWL",SE:"EWL",AU:"EWA",CN:"EWC",CT:"EWC",MK:"EWM",SJ:"EZA",SM:"EWP",IM:"EWI",SS:"EWD",BZ:"EWZ",MM:"EWW",CI:"ECH",IJ:"EIDO",TB:"THD",PM:"EPHE",SP:"EWS",TI:"TUR",AB:"KSA",PW:"EPOL",IT:"EIS",DC:"EDEN",NO:"ENOR",FH:"EFNL",AV:"EWO",BB:"EWK",ID:"EIRL",VN:"VNM",NZ:"ENZL",QD:"QAT",US:"ES=F"};
+/* gap esperado sin Bloomberg: beta x movimiento de hoy del ETF de su pais (datos de Yahoo de la pagina) */
+function gapProxy(code,beta){const e=PROXY_ETF[code],v=e&&D?.proxies?D.proxies[e]:null;return v==null||beta==null?null:beta*v}
 function rankingBBG(){
   const all=Object.entries(BBG?.filas||{}).map(([t,f])=>({t,f,us:!t.includes(" ")}));
   const ini=D.ventana.ini,fin=D.ventana.fin;
@@ -1401,17 +1411,29 @@ function rankingBBG(){
   u.forEach(x=>{const f=x.f;x.mov=f.iv??f.hv??f.hv90??null;x.r1m=f.r1m;x.si=f.si;x.beta=f.beta;x.sent=f.sent;x.rsi=f.rsi;
     x.win=!!f.earn&&f.earn>=ini&&f.earn<=fin;x.liq=f.tvUSD?f.tv:(f.advUSD??null);x.up=f.target&&f.px?(f.target/f.px-1)*100:null;
     x.code=codigoBolsa(x.t,{bbg:f});x.est=estadoBolsa(x.code);x.hrs=x.est.fase==="abierta"?0:(BOLSAS[x.code]?proximaApertura(x.code).horas:null);
-    x.gap=f.gapW??(f.proxyChg!=null&&f.beta!=null?f.beta*f.proxyChg:null);x.timing=timingDe(x.gap,x.code,BBG?.fecha)});
+    const gW=f.gapW??(f.proxyChg!=null&&f.beta!=null?f.beta*f.proxyChg:null);
+    x.gap=gW??gapProxy(x.code,f.beta);x.rel=relWLS(x.t);x.timing=timingDe(x.gap,x.code,gW!=null?BBG?.fecha:D?.generado)});
   const base=u.length;
   const conZ=u.filter(x=>x.f.zm!=null).length,modoW=conZ>=Math.max(5,u.length*.5);
+  /* modoF: la W trae solo datos crudos (sin formulas) y la pagina calcula los z-scores y el SCORE */
+  const crudo=x=>x.f.mcapUSD!=null&&x.f.r1m!=null&&(x.f.hv90??x.f.hv)!=null&&x.f.beta!=null;
+  const modoF=!modoW&&u.filter(crudo).length>=Math.max(50,u.length*.5);
+  if(modoF){const c=v=>v==null||!isFinite(v)?0:Math.max(-3,Math.min(3,v));
+    u=u.filter(crudo);
+    u.forEach(x=>{const f=x.f;x.fs=Math.log(f.mcapUSD);x.fm=f.r1y!=null?f.r1y-f.r1m:null;x.fv=f.hv90??f.hv;x.fb=f.beta;
+      x.fl=f.advUSD&&f.mcapUSD?Math.log(f.advUSD/f.mcapUSD):null;x.fg=f.gr;x.frep=x.win?1:0});
+    ["fs","fm","fv","fb","fl","fg"].forEach(k=>{const v=u.map(x=>x[k]).filter(v=>v!=null&&isFinite(v));const m=v.reduce((a,b)=>a+b,0)/(v.length||1),sd=Math.sqrt(v.reduce((a,b)=>a+(b-m)**2,0)/Math.max(1,v.length-1))||1;
+      u.forEach(x=>x["z"+k]=x[k]==null||!isFinite(x[k])?0:(x[k]-m)/sd)});
+    u.forEach(x=>{x.scoreF=-.25*c(x.zfs)+.25*c(x.zfm)+.20*c(x.zfv)+.15*c(x.zfb)+.10*c(x.zfl)+.10*c(x.zfg)+.5*x.frep});
+    u=u.filter(x=>x.f.mcapUSD<=10e9&&(x.f.px==null||x.f.px>=+rkF.pxmin)&&(x.f.advUSD==null||x.f.advUSD>=2e6))}
   if(modoW){const c=v=>v==null||!isFinite(v)?0:Math.max(-3,Math.min(3,v));
-    u=u.filter(x=>x.f.zm!=null&&(x.f.px==null||x.f.px>=1)&&(x.f.advUSD==null||x.f.advUSD>=2e6));
+    u=u.filter(x=>x.f.zm!=null&&(x.f.px==null||x.f.px>=+rkF.pxmin)&&(x.f.advUSD==null||x.f.advUSD>=2e6));
     u.forEach(x=>{const f=x.f;x.scoreF=-.25*c(f.zs)+.25*c(f.zm)+.20*c(f.zv)+.15*c(f.zb)+.10*c(f.zl)+.10*c(f.zg)+.5*(f.repW?1:0)})}
   if(rkF.cap==="SMALL")u=u.filter(x=>x.f.mcapUSD==null||x.f.mcapUSD<=10e9);
   if(rkF.mkt==="OPEN")u=u.filter(x=>x.est.fase==="abierta");
   if(rkF.mkt==="NEXT")u=u.filter(x=>x.hrs!=null&&x.hrs<=12);
   if(rkF.win)u=u.filter(x=>x.win);
-  if(rkF.liq&&!modoW)u=u.filter(x=>x.liq==null||x.liq>=20e6);
+  if(rkF.liq&&!modoW&&!modoF)u=u.filter(x=>x.liq==null||x.liq>=20e6);
   const cob={};
   PESOS_RK.forEach(([k])=>{const v=u.map(x=>x[k]).filter(v=>v!=null&&isFinite(v));cob[k]=v.length;
     const m=v.reduce((a,b)=>a+b,0)/(v.length||1),s=Math.sqrt(v.reduce((a,b)=>a+(b-m)**2,0)/Math.max(1,v.length-1))||1;
@@ -1419,12 +1441,13 @@ function rankingBBG(){
   u.forEach(x=>{
     const zm=x.z_mov??x.z_beta??0; // si no hay volatilidad, se usa la beta como reemplazo
     x.score=.35*zm+.25*(x.z_r1m??0)+.15*(x.z_si??0)+.10*(x.z_beta??0)+.10*(x.z_sent??0)+(x.win?1:0)
-      -(x.rsi!=null&&x.rsi>80?.5:0)-(!rkF.liq&&x.liq!=null&&x.liq<20e6?2:0);if(modoW)x.score=x.scoreF});
+      -(x.rsi!=null&&x.rsi>80?.5:0)-(!rkF.liq&&x.liq!=null&&x.liq<20e6?2:0);if(modoW||modoF)x.score=x.scoreF});
   u.sort((a,b)=>b.score-a.score);
   // cartera sugerida: las mejores 5, maximo 1 por industria
   const top=[],inds=new Set();
-  for(const x of u){const ind=x.f.ind||x.t;if(inds.has(ind))continue;top.push(x);inds.add(ind);if(top.length===5)break}
-  return{u,top,cob,base,total:all.length,nUS:all.filter(x=>x.us).length,modoW};
+  for(const pasada of [1,2]){for(const x of u){if(top.length===5)break;if(top.includes(x))continue;const ind=x.f.ind||x.t;if(inds.has(ind))continue;
+    if(pasada===1&&x.rel&&x.rel.txt==="Sigue al índice")continue;top.push(x);inds.add(ind)}}
+  return{u,top,cob,base,total:all.length,nUS:all.filter(x=>x.us).length,modoW,modoF};
 }
 function scatterRK(R){
   const u=R.u.slice(0,400);if(u.length<3)return"";
@@ -1456,7 +1479,7 @@ function scatterRK(R){
 function filaRK(x,i,enC){const f=x.f,mx=4;const w=Math.max(4,Math.min(100,(x.score+1.5)/mx*100));
   return`<tr><td class="n faint">${i+1}</td><td>${tkBtn(x.t)}<span class="nm">${esc(f.nombre||"")}</span>${bolsaChip(x.t,byT[x.t]||{bbg:f})}</td>
     <td><span class="nm" style="max-width:190px;font-size:12px;color:var(--fg)">${esc(f.ind||"–")}</span></td>
-    <td class="n">${x.gap!=null&&x.est.fase!=="abierta"?pct(x.gap,1):'<span class="faint" title="Solo se calcula con la bolsa cerrada">–</span>'}</td><td>${chipTiming(x.timing)}</td>
+    <td class="n">${x.gap!=null&&x.est.fase!=="abierta"?pct(x.gap,1):'<span class="faint" title="Solo se calcula con la bolsa cerrada">–</span>'}</td><td>${chipTiming(x.timing)}</td><td class="n ${x.f.px&&comIV(x.f.px)>=0.5?"down":""}">${x.f.px?fmt(comIV(x.f.px),2)+"%":"–"}</td><td>${chipRel(x.rel)}</td>
     <td>${f.earn?`<span class="chip ${x.win?"good":""}">${fecha(f.earn)}</span>`:'<span class="faint">–</span>'}</td>
     <td class="n">${x.mov!=null?fmt(x.mov,0)+"%":'<span class="faint">–</span>'}</td><td class="n">${pct(x.r1m,1)}</td>
     <td class="n">${x.rsi!=null?`<span class="${x.rsi>75?"down":x.rsi<30?"faint":""}">${fmt(x.rsi,0)}</span>`:'<span class="faint">–</span>'}</td>
@@ -1504,18 +1527,20 @@ function renderBBG(){
     ${seg("cap",[["ALL","Todos los tamaños"],["SMALL","Small/mid (≤ US$10.000M)"]])}
     ${seg("win",[["true","Reportan en el torneo"],["false","Todas"]])}
     ${seg("liq",[["true","Líquidas (> US$20M/día)"],["false","Sin filtro de liquidez"]])}
+    <span class="label" title="Comisión US$0,005 por acción al comprar y al vender: a menor precio, más acciones y más comisión">Precio mínimo</span>${seg("pxmin",[["1","US$1 (comisión 1%)"],["5","US$5 (0,2%)"],["10","US$10 (0,1%)"]])}
   </div>
+  ${R.modoF?`<div class="card" style="flex-direction:row;gap:10px;align-items:flex-start;border-color:var(--brand)"><span class="chip good">Modelo de factores</span><span class="sub" style="max-width:none">Tu archivo trae los datos crudos de la W, así que <b>la página calcula todo</b>: z-scores contra las ${R.base.toLocaleString("es-CL")} acciones cargadas, cada uno <b>limitado entre −3 y +3</b>, y el SCORE (−25% tamaño, +25% momentum 1 año menos 1 mes, +20% volatilidad 90d, +15% beta, +10% rotación, +10% crecimiento de ventas, +0,5 si reporta en el desafío). Después deja solo las de ≤ US$10.000M, precio ≥ 1 USD y ≥ 2 millones USD transados al día. El gap al abrir usa el ETF de cada país.</span></div>`:""}
   ${R.modoW?`<div class="card" style="flex-direction:row;gap:10px;align-items:flex-start;border-color:var(--brand)"><span class="chip good">Modelo de tu W</span><span class="sub" style="max-width:none">Tu archivo trae los z-scores de la W, así que el puntaje usa <b>tu fórmula de factores</b> (−25% tamaño, +25% momentum, +20% volatilidad, +15% beta, +10% liquidez, +10% crecimiento, +0,5 si reporta), con cada z <b>limitado entre −3 y +3</b> para que un dato extremo no domine. Se excluyen acciones de menos de 1 USD o con menos de 2 millones USD transados al día.</span></div>`:""}
-  ${falta.length&&!R.modoW?`<div class="card" style="flex-direction:row;gap:10px;align-items:flex-start;border-color:var(--warn)"><span class="chip warn">Faltan datos</span><span class="sub" style="max-width:none">Tu archivo no trae: <b>${falta.join(", ")}</b>. El puntaje funciona igual con lo que hay, pero es mejor con la plantilla con fórmulas.</span></div>`:""}
-  ${sumTop?`<div class="card"><header><h2>Cartera sugerida</h2><span class="meta">Las 5 con mejor puntaje, máximo 1 por industria</span></header>
+  ${falta.length&&!R.modoW&&!R.modoF?`<div class="card" style="flex-direction:row;gap:10px;align-items:flex-start;border-color:var(--warn)"><span class="chip warn">Faltan datos</span><span class="sub" style="max-width:none">Tu archivo no trae: <b>${falta.join(", ")}</b>. El puntaje funciona igual con lo que hay, pero es mejor con la plantilla con fórmulas.</span></div>`:""}
+  ${sumTop?`<div class="card"><header><h2>Cartera sugerida</h2><span class="meta">Las 5 con mejor puntaje, máximo 1 por industria, evitando las que siguen al índice</span></header>
     <div class="stats">${R.top.map((x,i)=>`<div class="stat" style="gap:6px"><span class="label">#${i+1} · ${esc(x.f.ind||"")}</span>
       <b style="display:flex;align-items:center;gap:8px">${tkBtn(x.t)}<span class="mono" style="font-size:13px;color:var(--muted);font-weight:600">${fmt(x.score,1)} pts</span></b>
       <span class="muted" style="font-size:12px">${esc(x.f.nombre||"")}</span>
-      <span style="font-size:12px;display:flex;gap:6px;flex-wrap:wrap">${x.f.earn?`<span class="chip ${x.win?"good":""}">Reporta ${fecha(x.f.earn)}</span>`:""}${x.mov!=null?`<span class="chip">Vol ${fmt(x.mov,0)}%</span>`:x.beta!=null?`<span class="chip">Beta ${fmt(x.beta,1)}</span>`:""}${x.r1m!=null?`<span class="chip ${x.r1m>=0?"good":"bad"}">1M ${sgn(x.r1m,0)}</span>`:""}${x.timing&&x.timing.txt!=="Normal"?chipTiming(x.timing):""}${bolsaChip(x.t,{bbg:x.f},true)}${x.gap!=null&&x.est.fase!=="abierta"?`<span class="chip ${x.gap>=0?"good":"bad"}" title="Gap esperado al abrir">Gap ${sgn(x.gap,1)}</span>`:""}</span></div>`).join("")}</div>
+      <span style="font-size:12px;display:flex;gap:6px;flex-wrap:wrap">${x.f.earn?`<span class="chip ${x.win?"good":""}">Reporta ${fecha(x.f.earn)}</span>`:""}${x.mov!=null?`<span class="chip">Vol ${fmt(x.mov,0)}%</span>`:x.beta!=null?`<span class="chip">Beta ${fmt(x.beta,1)}</span>`:""}${x.r1m!=null?`<span class="chip ${x.r1m>=0?"good":"bad"}">1M ${sgn(x.r1m,0)}</span>`:""}${x.timing&&x.timing.txt!=="Normal"?chipTiming(x.timing):""}${x.rel?chipRel(x.rel):""}${bolsaChip(x.t,{bbg:x.f},true)}${x.gap!=null&&x.est.fase!=="abierta"?`<span class="chip ${x.gap>=0?"good":"bad"}" title="Gap esperado al abrir">Gap ${sgn(x.gap,1)}</span>`:""}</span></div>`).join("")}</div>
     <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center"><button class="btn primary" id="rkUsar" type="button">Usar estas 5 como mi cartera y simular</button><span class="faint" style="font-size:12px">Pone US$200.000 en cada una y te lleva a Cartera → Monte Carlo.</span></div></div>`:""}
   ${scatterRK(R)}
   <div class="card" style="padding:0;gap:0"><header style="padding:14px 16px"><h3>Ranking para el torneo</h3><span class="meta">${n?`Top ${Math.min(rkF.n,n)} de ${n.toLocaleString("es-CL")}`:"Ninguna acción pasa los filtros"}</span></header>
-  <div class="tablebox" style="border:0;border-top:1px solid var(--line);border-radius:0 0 12px 12px"><table><thead><tr><th class="n">#</th><th>Acción · bolsa</th><th>Industria</th><th class="n" title="Beta × movimiento de hoy del ETF de su país (solo con la bolsa cerrada)">Gap al abrir</th><th>Timing</th><th>Resultados</th><th class="n">Volatilidad</th><th class="n">1 mes</th><th class="n">RSI</th><th class="n">Beta</th><th class="n">Short</th><th class="n">Upside</th><th class="n">Noticias</th><th>Puntaje</th><th><span class="sr">Cartera</span></th></tr></thead>
+  <div class="tablebox" style="border:0;border-top:1px solid var(--line);border-radius:0 0 12px 12px"><table><thead><tr><th class="n">#</th><th>Acción · bolsa</th><th>Industria</th><th class="n" title="Beta × movimiento de hoy del ETF de su país (solo con la bolsa cerrada)">Gap al abrir</th><th>Timing</th><th class="n" title="Comisión de comprar y vender (US$0,005 por acción cada vez), como % del monto">Comisión i/v</th><th title="Cómo se mueve contra el índice (mercado global como aproximación del WLS). Para ganarle al WLS sirven más las que van por su cuenta.">vs WLS</th><th>Resultados</th><th class="n">Volatilidad</th><th class="n">1 mes</th><th class="n">RSI</th><th class="n">Beta</th><th class="n">Short</th><th class="n">Upside</th><th class="n">Noticias</th><th>Puntaje</th><th><span class="sr">Cartera</span></th></tr></thead>
   <tbody>${R.u.slice(0,rkF.n).map((x,i)=>filaRK(x,i,enC)).join("")}</tbody></table></div>
   ${n>rkF.n?`<div style="padding:12px 16px"><button class="btn small" id="rkMas" type="button">Ver ${Math.min(50,n-rkF.n)} más</button></div>`:""}</div>
   <details class="how"><summary>¿Cómo se calcula el puntaje?</summary><div class="sub" style="max-width:80ch;display:flex;flex-direction:column;gap:6px;margin-top:8px">
@@ -1667,14 +1692,15 @@ function leerPosiciones(rows,crudo){
   const col=(inc,exc=[])=>{for(const x of inc){const i=H.findIndex(h=>h.includes(x)&&!exc.some(e=>h.includes(e)));if(i>=0)return i}return -1};
   const c={t:col(["TICKER"]),st:col(["STATUS"]),side:col(["SIDE"]),px:col(["LAST PRICE","PRICE"]),gross:col(["GROSS","EXPOSURE","MARKET VAL"]),
     pnl:col(["P&L - OTD","P&L OTD","P&L"],["RELATIVE","REL "]),rpnl:col(["RELATIVE P&L","REL P&L"]),abs:col(["ABSOLUTE TOTAL","ABS TOTAL","ABSOLUTE"]),
-    rel:col(["RELATIVE TOTAL","REL TOTAL"]),hora:col(["UPDATE","TIME"]),des:col(["DES","NAME"],["UPDATE"])};
+    rel:col(["RELATIVE TOTAL","REL TOTAL"]),hora:col(["UPDATE","TIME"]),des:col(["DES","NAME"],["UPDATE"]),
+    sh:col(["SHARES","QUANTITY","POSITION"],["VALUE","P&L"]),com:col(["COMMISSION"])};
   const pos=[];
   rows.slice(hi+1).forEach(r=>{const g=k=>c[k]>=0?r[c[k]]:null;const raw=String(g("t")||"").trim();
     if(!raw||/^TICKER$|^TOTAL|CASH|^USD$/i.test(raw))return;const k=claveTicker(raw);if(!k)return;
     const pc=k2=>{const v=g(k2);if(v==null||v==="")return null;if(typeof v==="number")return crudo&&Math.abs(v)<5?v*100:v;return numP(v,false)};
     const gross=numP(g("gross"),true);if(gross==null)return;
     pos.push({k,raw,st:String(g("st")||"").trim(),side:String(g("side")||"").trim(),px:numP(g("px"),false),gross,pnl:numP(g("pnl"),true),rpnl:numP(g("rpnl"),true),
-      abs:pc("abs"),rel:pc("rel"),hora:String(g("hora")||"").trim(),des:String(g("des")||"").trim()})});
+      abs:pc("abs"),rel:pc("rel"),sh:numP(g("sh"),true),com:numP(g("com"),true),hora:String(g("hora")||"").trim(),des:String(g("des")||"").trim()})});
   return pos}
 function guardarSnap(pos,origen){
   if(!pos.length){toast("No encontré posiciones. Copia la tabla de TMSG incluyendo la fila de títulos (Ticker, Gross Exposure…).");return}
@@ -1716,13 +1742,23 @@ function renderPort(){
       ${s?`<button class="btn small" id="portUndo" type="button">Borrar última carga</button><button class="btn small" id="portClear" type="button">Borrar historial</button>`:""}</div></div>`;
   const eqb='<div data-eqbox></div>';if(!s){el.innerHTML=eqb+carga;renderEquipo();bindPort();return}
   const st=statsSnap(s),P=[...s.pos].sort((a,b)=>b.gross-a.gross);
+  /* riesgo contra el indice (modelo de un factor): beta de la cartera y que parte del riesgo es propia */
+  const rels=P.map(p=>({p,r:relWLS(p.k)})),conRel=rels.filter(x=>x.r&&x.r.beta!=null&&x.r.volprop!=null);
+  let rk=null;if(conRel.length&&U?.mktvol){const sm=U.mktvol/100;
+    const bp=conRel.reduce((a,x)=>a+x.p.gross/CAPITAL*x.r.beta,0),idio=conRel.reduce((a,x)=>a+(x.p.gross/CAPITAL*x.r.volprop/100)**2,0);
+    const sys=(bp*sm)**2,te=Math.sqrt((bp-1)**2*sm*sm+idio);let dh=0;for(const d=new Date();d<=FIN;d.setDate(d.getDate()+1)){const w=d.getDay();if(w&&w<6)dh++}
+    rk={bp,propio:idio/(idio+sys),te:te*Math.sqrt(Math.max(1,dh)/252)*100,dh,n:conRel.length}}
   const prev=PORT.snaps.length>1?statsSnap(PORT.snaps[PORT.snaps.length-2]):null;
   const ali=[];
+  if(rk&&rk.propio<0.4)ali.push(["w",`Solo ${fmt(100*rk.propio,0)}% del riesgo de la cartera es propio: se mueve casi como el índice y así es difícil subir en el ranking. Prefieran acciones que "van por su cuenta" (ver columna vs WLS).`]);
+  if(rk&&rk.bp<0.6&&st.caja>50000)ali.push(["i",`La beta de la cartera es ${fmt(rk.bp,2)} por la caja sin invertir: si el WLS sube, quedan atrás casi en la misma proporción.`]);
   if(st.caja>50000)ali.push(["b",`Hay cerca de ${usd(st.caja)} sin invertir (${fmt(100*st.caja/CAPITAL,0)}% del fondo). El ranking compara con el WLS: si el índice sube, la caja ociosa los hace perder posiciones. Úsenla en las mejores ideas del radar.`]);
   const chicas=P.filter(p=>p.gross<20000);if(chicas.length)ali.push(["w",`${chicas.length} posiciones pesan menos de 2% del fondo (${chicas.map(p=>p.k).join(", ")}). Aunque una suba 20%, aporta menos de 0,4% al total. Conviene concentrar en menos acciones con más convicción.`]);
   P.filter(p=>p.gross>MAXPOS).forEach(p=>ali.push(["b",`${p.k} vale ${usd(p.gross)}: supera el máximo de ${usd(MAXPOS)} por acción.`]));
   P.filter(p=>p.gross>MAXPOS*0.9&&p.gross<=MAXPOS).forEach(p=>ali.push(["w",`${p.k} está cerca del máximo (${usd(p.gross)} de ${usd(MAXPOS)}). No le agreguen más.`]));
   P.filter(p=>p.st&&!/^OPEN$/i.test(p.st)).forEach(p=>ali.push(["w",`${p.k} figura como "${p.st}": la orden aún no está completa. Revisen en TMSG que se haya ejecutado.`]));
+  const conSh=P.filter(p=>p.sh);if(!conSh.length)ali.push(["i","Desde el 26-oct cada compra y venta paga US$0,005 por acción. Agrega la columna Shares en TMSG (VIEWS → EDIT COLUMNS) antes de copiar, y la página te muestra cuánto costaría vender cada posición."]);
+  conSh.filter(p=>p.sh*COMISION/p.gross>=0.003).forEach(p=>ali.push(["w",`${p.k}: venderla cuesta ${usd(p.sh*COMISION)} en comisión (${fmt(100*p.sh*COMISION/p.gross,2)}% de la posición) porque son ${Math.round(p.sh).toLocaleString("es-CL")} acciones de bajo precio. Piénsenlo antes de rotarla.`]));
   P.filter(p=>p.side&&!/LONG|BUY/i.test(p.side)).forEach(p=>ali.push(["b",`${p.k} aparece como "${p.side}". En el desafío solo se permiten compras (long).`]));
   P.filter(p=>p.rel!=null&&p.rel<=-8).forEach(p=>ali.push(["w",`${p.k} va ${sgn(p.rel)} contra el WLS. Revisen si la tesis sigue en pie o si conviene rotar a algo con mejor momentum.`]));
   P.forEach(p=>{const t=radarDe(p.k),a=t&&byT[t];if(a&&a.earn&&a.diasEarn!=null&&a.diasEarn>=0&&a.diasEarn<=5)ali.push(["i",`${p.k} reporta resultados ${a.diasEarn===0?"hoy":a.diasEarn===1?"mañana":"el "+fecha(a.earn)}. Decidan antes si mantienen el tamaño de la posición.`])});
@@ -1732,7 +1768,7 @@ function renderPort(){
       <td class="n">${p.pnl==null?"–":`<span class="${p.pnl>=0?"up":"down"}">${p.pnl>=0?"+":"−"}${usd(Math.abs(p.pnl))}</span>`}</td>
       <td class="n">${p.rpnl==null?"–":`<span class="${p.rpnl>=0?"up":"down"}">${p.rpnl>=0?"+":"−"}${usd(Math.abs(p.rpnl))}</span>`}</td>
       <td class="n">${pct(p.abs,2)}</td><td class="n"><b>${pct(p.rel,2)}</b></td>
-      <td class="n">${gap!=null&&e.fase!=="abierta"?pct(gap,1):'<span class="faint">–</span>'}</td><td>${chipTiming(timingDe(gap,codigoBolsa(p.k,a),BBG?.fecha))}</td>
+      <td class="n">${gap!=null&&e.fase!=="abierta"?pct(gap,1):'<span class="faint">–</span>'}</td><td>${chipTiming(timingDe(gap,codigoBolsa(p.k,a),BBG?.fecha))}</td><td class="n ${p.sh&&p.sh*COMISION/p.gross>=0.003?"down":""}">${p.sh?usd(p.sh*COMISION)+`<span class="nm faint">${fmt(100*p.sh*COMISION/p.gross,2)}%</span>`:'<span class="faint">–</span>'}</td><td>${chipRel(relWLS(p.k))}</td>
       <td>${a&&a.earn?`<span class="chip ${a.enVentana?"good":""}">${fecha(a.earn)}</span>`:"–"}</td><td>${a&&a.momentum?momChip(a.momentum):"–"}</td></tr>`}).join("");
   const mx=Math.max(1,...P.map(p=>Math.abs(p.rel||0)));
   const barras=[...P].filter(p=>p.rel!=null).sort((a,b)=>b.rel-a.rel).map(p=>`<div style="display:grid;grid-template-columns:110px 1fr 64px;gap:8px;align-items:center;font-size:12.5px"><span class="mono" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(p.k)}</span>
@@ -1743,9 +1779,10 @@ function renderPort(){
     <div class="stat ${st.caja>50000?"warnS":""}"><span class="label">Caja estimada</span><b>${usd(st.caja)}</b><span class="muted">${fmt(100*st.caja/CAPITAL,0)}% sin invertir</span></div>
     <div class="stat"><span class="label">Resultado de hoy</span><b class="${(st.pnl||0)>=0?"up":"down"}">${st.pnl==null?"–":(st.pnl>=0?"+":"−")+usd(Math.abs(st.pnl))}</b><span class="muted">vs WLS ${st.rpnl==null?"–":(st.rpnl>=0?"+":"−")+usd(Math.abs(st.rpnl))}</span></div>
     <div class="stat"><span class="label">Rentabilidad del fondo</span><b class="${st.ret>=0?"up":"down"}">${sgn(st.ret,2)}</b><span class="muted">${st.pnlTot>=0?"+":"−"}${usd(Math.abs(st.pnlTot))}</span>${dlt(st.ret,"ret")}</div>
+    ${rk?`<div class="stat ${rk.propio<0.4?"warnS":""}" title="Beta de toda la cartera (incluida la caja, que tiene beta 0) contra el mercado global, y qué parte de su riesgo viene de las propias acciones y no del índice"><span class="label">Beta vs WLS · riesgo propio</span><b>${fmt(rk.bp,2)} · ${fmt(100*rk.propio,0)}%</b><span class="muted">En los ${rk.dh} días hábiles que quedan pueden separarse del WLS ±${fmt(rk.te,1)}% (1 desv.)</span></div>`:""}
     <div class="stat ${st.retRel<0?"badS":""}"><span class="label">Contra el índice WLS</span><b class="${st.retRel>=0?"up":"down"}">${sgn(st.retRel,2)}</b><span class="muted">esto es lo que define el ranking</span>${dlt(st.retRel,"retRel")}</div></div>
   ${ali.length?`<div class="card"><header><h2>Qué revisar ahora</h2></header><div class="rules">${ali.map(([c,t])=>`<div class="rule"><span class="dot ${c==="i"?"":c}"></span><span>${esc(t)}</span></div>`).join("")}</div></div>`:""}
-  <div class="tablebox"><table><thead><tr><th>Acción · bolsa</th><th class="n">Precio</th><th class="n">Monto US$</th><th class="n">% fondo</th><th class="n">Hoy US$</th><th class="n">Hoy vs WLS</th><th class="n">Total</th><th class="n">Total vs WLS</th><th class="n" title="Beta × movimiento del ETF de su país, solo si la bolsa está cerrada (requiere Mi Bloomberg)">Gap al abrir</th><th>Timing</th><th>Resultados</th><th>Momentum</th></tr></thead><tbody>${fil}</tbody></table></div>
+  <div class="tablebox"><table><thead><tr><th>Acción · bolsa</th><th class="n">Precio</th><th class="n">Monto US$</th><th class="n">% fondo</th><th class="n">Hoy US$</th><th class="n">Hoy vs WLS</th><th class="n">Total</th><th class="n">Total vs WLS</th><th class="n" title="Beta × movimiento del ETF de su país, solo si la bolsa está cerrada (requiere Mi Bloomberg)">Gap al abrir</th><th>Timing</th><th class="n" title="Lo que costaría venderla: US$0,005 por acción (requiere la columna Shares de TMSG)">Comisión al vender</th><th>vs WLS</th><th>Resultados</th><th>Momentum</th></tr></thead><tbody>${fil}</tbody></table></div>
   <div class="two"><div class="card"><header><h2>Cada posición contra el WLS</h2></header><div style="display:flex;flex-direction:column;gap:6px">${barras||'<p class="muted">Sin datos de retorno relativo.</p>'}</div></div>
     <div class="card"><header><h2>Evolución del portafolio</h2></header>${lineaHist(PORT.snaps)}</div></div>
   <div class="card" style="flex-direction:row;align-items:center;gap:12px;flex-wrap:wrap"><span style="flex:1;min-width:220px">Pasa estas posiciones a <b>Cartera</b> para ver correlación, volatilidad y la simulación Monte Carlo del portafolio real.</span><button class="btn" id="portACartera" type="button">Usar en Cartera</button></div>
@@ -1846,8 +1883,14 @@ setInterval(()=>{if(!document.hidden)sincronizarEquipo(false)},5*60*1000);
 let U=null,vistaAcc=load("gtc-vista")||"radar",uF={q:"",bolsa:"",liq:false,abiertas:false,n:100},uSort={k:"liq",d:-1};
 const UCOLS_N={precio:1,r1d:1,r1s:1,r1m:1,r3m:1,vol20:1,liq:1,rsi:1,dist52:1};
 function cargarU(){return fetch("universo.json?v="+Date.now(),{cache:"no-store"}).then(r=>r.ok?r.json():null).then(j=>{
-  if(!j||!j.filas)return;U={generado:j.generado,n:j.n,filas:j.filas.map(f=>{const o={};j.cols.forEach((c,i)=>o[c]=f[i]);return o})};
-  stubsCartera();renderAcciones();renderCartera()}).catch(()=>{})}
+  if(!j||!j.filas)return;U={generado:j.generado,n:j.n,mktvol:j.mktvol,indice:j.indice,filas:j.filas.map(f=>{const o={};j.cols.forEach((c,i)=>o[c]=f[i]);return o})};
+  U.porB=new Map(U.filas.map(o=>[claveTicker(o.bbg),o]));
+  stubsCartera();renderAcciones();renderCartera();renderBBG();renderPort()}).catch(()=>{})}
+/* Relacion con el indice (ACWI como aproximacion del WLS): beta, correlacion y volatilidad propia */
+function relWLS(k){const o=U?.porB?.get(claveTicker(k));if(!o||o.corr==null)return null;
+  const tipo=o.corr>=0.6?{txt:"Sigue al índice",cls:"warn"}:(o.beta??0)>=1.3?{txt:"Amplifica",cls:""}:o.corr<0.3?{txt:"Va por su cuenta",cls:"good"}:{txt:"Mixta",cls:""};
+  return{beta:o.beta,corr:o.corr,volprop:o.volprop,vol:o.vol90,...tipo}}
+const chipRel=r=>r?`<span class="chip ${r.cls}" style="white-space:nowrap" title="Beta ${fmt(r.beta,2)} · correlación ${fmt(r.corr,2)} con el mercado global · volatilidad propia ${fmt(r.volprop,0)}%">${esc(r.txt)}</span>`:'<span class="faint">–</span>';
 function stubU(o){if(!byT[o.t])byT[o.t]={t:o.t,nombre:o.nombre||o.bbg,tema:"WLS",rank:"–",vol20:o.vol20,r1m:o.r1m,r3m:o.r3m,r1d:o.r1d,momentum:o.momentum,precio:o.precio,
   betas:{ACWI:1},grupo:"–",senales:[],noticias:[],hist:[],bbgOnly:true,tkBBG:o.bbg,bolsaBBG:o.bolsa,uni:true};return o.t}
 function stubsCartera(){if(!U)return;const m=new Map(U.filas.map(o=>[o.t,o]));cart.items.forEach(i=>{if(!byT[i.t]&&m.has(i.t))stubU(m.get(i.t))})}
@@ -1884,6 +1927,7 @@ function renderUni(){
     <td class="n ${o.rsi>=70?"down":o.rsi<=30?"up":""}">${o.rsi==null?"–":fmt(o.rsi,0)}</td><td class="n">${pct(o.dist52,0)}</td>
     <td><button class="add ${enC.has(o.t)?"on":""}" data-uadd="${esc(o.t)}" type="button" aria-label="Agregar ${esc(o.bbg)} a la cartera">${enC.has(o.t)?"✓":"+"}</button></td></tr>`}).join("")||`<tr><td colspan="13" class="muted" style="padding:20px">Ninguna acción coincide. Si es del WLS y no está en la lista, agrégala abajo.</td></tr>`}</tbody></table></div>
   ${F.length>uF.n?`<button class="btn small" id="umas" type="button" style="align-self:flex-start">Ver ${Math.min(100,F.length-uF.n)} más</button>`:""}
+  ${preselHTML()}
   <div class="two">
     <div class="card"><header><h2>¿No está la acción que buscas?</h2></header>
       <p class="sub" style="margin:0">Escribe su ticker de Bloomberg (por ejemplo <b>BG AV</b> para BAWAG en Viena). Se agrega al archivo <b>equipo.txt</b> y en la próxima actualización completa (máximo 1 hora) aparece en el Radar con todos sus datos y noticias. Confirma antes en Bloomberg que esté en el WLS.</p>
@@ -1891,9 +1935,33 @@ function renderUni(){
       ${EQ.token?"":`<p class="faint" style="font-size:12px;margin:0">Necesita el token de GitHub del cuadro Equipo. Sin token: en GitHub abre <b>equipo.txt</b> → lápiz ✏️ → agrega una línea con el ticker → <b>Commit changes</b>.</p>`}</div>
     <div class="card"><header><h2>Actualizar la lista completa del WLS</h2></header>
       <p class="sub" style="margin:0">Esta lista tiene ${U.n.toLocaleString("es-CL")} acciones. Para tener <b>todas</b> las del índice: en Bloomberg escribe <b>WLS Index MEMB</b> (o una EQS con "Index = WLS"), exporta solo la columna de tickers y súbela aquí. Reemplaza el archivo <b>universo.txt</b>.</p>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"><label class="btn" style="cursor:pointer">Subir Excel con tickers<input type="file" id="ufile" accept=".xlsx,.xls,.csv,.txt" hidden></label><span class="faint" style="font-size:12px">${EQ.token?"Se guarda directo en GitHub.":"Sin token se descarga universo.txt para que lo subas a GitHub."}</span></div></div>
+      <textarea id="utxt" rows="3" placeholder="O pega aquí la columna de tickers copiada desde la W (ej. 000660 KS Equity)"></textarea>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"><button class="btn" id="upaste" type="button">Usar los tickers pegados</button><label class="btn" style="cursor:pointer">Subir Excel con tickers<input type="file" id="ufile" accept=".xlsx,.xls,.csv,.txt" hidden></label><span class="faint" style="font-size:12px">${EQ.token?"Se guarda directo en GitHub.":"Sin token se descarga universo.txt para que lo subas a GitHub."}</span></div></div>
   </div>`}
+/* Preseleccion para Bloomberg: con datos de Yahoo (gratis) se eligen las N acciones con mejor puntaje de precio,
+   para gastar el limite mensual de Bloomberg (~4.000-5.000 acciones distintas) solo en las que pueden llegar al Top. */
+let preN=Number(load("gtc-preN"))||3000;
+function preseleccion(){
+  if(!U)return null;const c=v=>Math.max(-3,Math.min(3,v));
+  const ok=U.filas.filter(o=>o.liq!=null&&o.liq>=2&&(o.pxusd==null||o.pxusd>=+rkF.pxmin)&&o.r1y!=null&&o.r1m!=null&&o.vol90!=null);
+  const F=[["m",o=>o.r1y-o.r1m],["v",o=>o.vol90],["b",o=>o.beta]];const Z={};
+  F.forEach(([k,f])=>{const v=ok.map(f).filter(x=>x!=null&&isFinite(x)),m=v.reduce((a,b)=>a+b,0)/(v.length||1),sd=Math.sqrt(v.reduce((a,b)=>a+(b-m)**2,0)/Math.max(1,v.length-1))||1;Z[k]=o=>{const x=f(o);return x==null||!isFinite(x)?0:c((x-m)/sd)}});
+  ok.forEach(o=>o.pre=.25*Z.m(o)+.20*Z.v(o)+.15*Z.b(o));ok.sort((a,b)=>b.pre-a.pre);
+  const fijas=new Set();((PORT.snaps[PORT.snaps.length-1]||{}).pos||[]).forEach(p=>fijas.add(p.k));
+  const elegidas=[...new Set([...fijas,...ok.slice(0,preN).map(o=>o.bbg)])];
+  return{total:U.filas.length,pasan:ok.length,elegidas,fijas:fijas.size}}
+function preselHTML(){const P=preseleccion();if(!P)return"";const tieneDatos=U.filas.some(o=>o.r1y!=null);if(!tieneDatos)return"";
+  return`<div class="card"><header><h2>Lista para Bloomberg (sin gastar cuota para elegirla)</h2><span class="chip info">${P.elegidas.length.toLocaleString("es-CL")} acciones</span></header>
+  <p class="sub" style="margin:0">Bloomberg recomienda no pasar de <b>4.000–5.000 acciones distintas al mes</b>. Esta lista elige con datos de Yahoo (gratis) las que pueden llegar al Top: de ${P.total.toLocaleString("es-CL")} acciones del WLS, <b>${P.pasan.toLocaleString("es-CL")}</b> tienen precio ≥ ${rkF.pxmin} USD (por la comisión por acción) y ≥ US$2M transados al día, y de esas toma las <b>${Math.min(preN,P.pasan).toLocaleString("es-CL")}</b> con mejor puntaje de <b>momentum, volatilidad y beta</b> (60% del SCORE). Siempre incluye sus ${P.fijas} posiciones actuales. Bloomberg completa lo que Yahoo no tiene: tamaño, crecimiento y fecha de resultados.</p>
+  <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"><label class="sub" for="preN" style="margin:0">Cuántas</label><input id="preN" inputmode="numeric" value="${preN}" style="width:90px">
+    <button class="btn primary" id="preDl" type="button">Descargar lista para la W (.txt)</button><button class="btn" id="preCp" type="button">Copiar tickers</button></div>
+  <p class="faint" style="font-size:12px;margin:0">Cada acción nueva suma al límite del mes; repetir una ya usada no cuenta. Por eso conviene <b>cambiar la lista solo una vez al mes</b> (por ejemplo el 1 de noviembre) y usar siempre la misma.</p></div>`}
 function bindUni(el){
+  const pn=$("#preN");if(pn)pn.onchange=()=>{preN=Math.max(100,Math.min(10000,parseInt(pn.value.replace(/\D/g,""))||3000));store("gtc-preN",preN);renderAcciones()};
+  const txtPre=()=>preseleccion().elegidas.map(t=>t+" Equity").join("\n")+"\n";
+  const pd=$("#preDl");if(pd)pd.onclick=()=>{const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([txtPre()],{type:"text/plain"}));a.download="tickers_para_W.txt";a.click()};
+  const pc=$("#preCp");if(pc)pc.onclick=async()=>{try{await navigator.clipboard.writeText(txtPre());toast("Tickers copiados: pégalos en la columna de acciones de la W")}catch(e){toast("No se pudo copiar; usa Descargar")}};
+  const up=$("#upaste");if(up)up.onclick=()=>{const t=$("#utxt").value;if(!t.trim()){toast("Pega primero los tickers");return}subirUniverso(new File([t],"pegado.txt",{type:"text/plain"}))};
   const keep=id=>{const e=$(id);if(!e)return;e.focus();const v=e.value;e.setSelectionRange?.(v.length,v.length)};
   const q=$("#uq");if(q)q.oninput=e=>{uF.q=e.target.value.toLowerCase().trim();uF.n=100;renderAcciones();keep("#uq")};
   const b=$("#ub");if(b)b.onchange=e=>{uF.bolsa=e.target.value;uF.n=100;renderAcciones()};
