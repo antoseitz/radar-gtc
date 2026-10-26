@@ -816,7 +816,7 @@ function renderResumen(){
     return`<div class="ag-day"><div class="ag-date ${hoy?"hoy":""}"><b>${hoy?"Hoy":DIA[dt.getDay()]}</b><span>${dt.getDate()} ${MES[dt.getMonth()]}</span></div><div class="ag-items">${items.join("")||'<span class="ag-empty">Sin eventos importantes</span>'}</div></div>`}).join("");
   // contagio compact
   const ctg=C.filter(l=>l.dias!=null&&l.dias>=0&&l.proximo<=D.ventana.fin).slice(0,6);
-  el.innerHTML=`<div class="rs">${fueraHorario()}
+  el.innerHTML=`<div class="rs">${fueraHorario()}<div id="s-olas">${olasHTML()}</div>
   <section class="r-sec"><div class="r-head"><span class="r-num">1</span><div><h2>¿Cómo está el mercado?</h2><p>Lo que pasó esta semana en el mundo y en la lista de acciones que seguimos.</p></div></div>
     <p class="r-verdict" style="margin:0">${verd}</p>
     <div class="kp4">${kp("Mercado global",ac)}${kp("Nasdaq (tecnología)",nq)}${kp("Small caps EE.UU.",iw)}${kp("Tasa 10 años EE.UU.",tz,1)}</div>
@@ -880,6 +880,55 @@ const TEMA_POR_QUE={
   "Nuevas del día":"No estaban en nuestra lista: el panel las encontró hoy en los rankings de Yahoo (las que más suben, las más transadas, small caps agresivas, más apostadas a la baja). Se renuevan cada día. Revisa que estén en el WLS antes de comprar."};
 function hace(f){if(!f)return"";const d=new Date(f.length<=16?f+":00Z":f),h=(Date.now()-d)/36e5;if(isNaN(h))return fecha(f);if(h<1)return"hace minutos";if(h<24)return`hace ${Math.round(h)} h`;const dd=Math.round(h/24);return dd===1?"ayer":`hace ${dd} días`}
 let notiFiltro="todas";
+/* OLAS: acciones del WLS que suben fuerte con volumen inusual en su ultima sesion (aunque su bolsa ya cerro), con titulares */
+const regionDe=t=>{const suf=t.includes(".")?"."+t.split(".").pop():"";return[".T",".KS",".KQ",".TW",".TWO",".HK",".SS",".SZ",".NS",".BO",".JK",".BK",".SI",".KL",".PS",".AX",".NZ",".VN"].includes(suf)?"Asia":(suf===""||[".TO",".SA",".MX",".SN",".CL"].includes(suf))?"América":"Europa y otros"};
+/* duracion estimada: el horizonte (1, 3 o 5 dias) donde la ola le saca mas ventaja a un dia cualquiera */
+function duracionOla(reg){const st=U?.olaStats?.[reg];if(!st)return null;
+  const ex=[[1,st.d1-(st.base1??0)],[3,st.d3-(st.base3??0)],[5,st.d5-(st.base5??0)]];const best=ex.reduce((a,b)=>b[1]>a[1]?b:a);
+  return{...st,dias:best[1]>0.1?best[0]:0,exceso:best[1]}}
+function planOla(o){const reg=regionDe(o.t),d=duracionOla(reg),code=codU(o),e=estadoBolsa(code),pa=BOLSAS[code]?proximaApertura(code):null,b=BOLSAS[code];
+  const cierre=b?horaChile(code,b.ses[b.ses.length-1][1]-0.5):"";const own=U?.olaTicker?.[o.t];
+  let h=d?(d.dias?`<span class="chip good">~${d.dias} día${d.dias>1?"s":""}</span> <span class="faint">${esc(reg)}: +${fmt(d.exceso,2)}% sobre lo normal</span>`:`<span class="chip warn">Sin ventaja clara</span>`):'<span class="faint">Sin historial aún</span>';
+  if(own)h+=`<span class="faint" style="display:block">Esta acción: ${own[0]} olas, 3 días ${sgn(own[2],1)} (${fmt(own[3],0)}% suben)</span>`;
+  if(d&&d.dias)h+=`<span style="display:block;margin-top:2px">${e.fase==="abierta"?"Bolsa abierta: ya está en la ola, no persigas":"Compra: "+(pa?esc(pa.txt):"próxima apertura")}${cierre?` · vende el día ${d.dias} de sesión antes de las ${cierre} (hora Chile)`:""}</span>`;
+  return h}
+function olasStatsHTML(){const S=U?.olaStats;if(!S||!Object.keys(S).length)return"";
+  return`<div class="tablebox" style="margin-top:4px"><table><thead><tr><th>Región</th><th class="n">Olas en 1 año</th><th class="n" title="Apertura del día siguiente vs cierre del día de la ola (no se puede capturar: la orden se ejecuta en la apertura)">Gap al abrir</th><th class="n">Día 1</th><th class="n">Día 3</th><th class="n">Día 5</th><th class="n" title="Lo mismo comprando un día cualquiera">Día cualquiera (1 / 3 / 5)</th><th class="n">% que sube (1 / 3 días)</th><th>Duración estimada</th></tr></thead><tbody>
+  ${Object.keys(S).sort().map(reg=>{const d=duracionOla(reg);return`<tr><td><b>${esc(reg)}</b></td><td class="n">${d.n.toLocaleString("es-CL")}</td><td class="n">${pct(d.gap,2)}</td><td class="n">${pct(d.d1,2)}</td><td class="n">${pct(d.d3,2)}</td><td class="n">${pct(d.d5,2)}</td>
+    <td class="n faint">${sgn(d.base1,2)} / ${sgn(d.base3,2)} / ${sgn(d.base5,2)}</td><td class="n">${fmt(d.pos1,0)}% / ${fmt(d.pos3,0)}%</td>
+    <td>${d.dias?`<span class="chip good">~${d.dias} día${d.dias>1?"s":""} (+${fmt(d.exceso,2)}% sobre lo normal)</span>`:`<span class="chip warn">Sin ventaja clara</span>`}</td></tr>`}).join("")}</tbody></table></div>
+  <p class="faint" style="font-size:12px;margin:0">Cómo se calcula: cada vez que una acción del WLS subió ≥ +3% con volumen ≥ 1,5× en el último año, se simula comprar en la apertura del día siguiente y vender al cierre del día 1, 3 o 5. Son promedios históricos con mucha dispersión, no una garantía.</p>`}
+/* RUIDO EN REDES (solo EE.UU.): menciones en Reddit (ApeWisdom) y tendencias de StockTwits */
+function redesDe(k){const R=U?.redes?.tickers;if(!R)return null;const o=U.porB?.get(claveTicker(k));if(!o||codU(o)!=="US")return null;
+  const x=R[o.t]||R[o.t.replace(/-/g,".")];if(!x)return null;
+  const sube=x.m24>0?x.m/x.m24>=2:x.m>=20,nivel=(x.st&&x.st<=15)||x.rank<=20?"Muy comentada":x.rank<=100?"Comentada":null;
+  if(!nivel&&!x.st)return null;return{...x,nivel:nivel||"En StockTwits",sube}}
+const chipRedes=r=>r?`<span class="chip ${r.nivel==="Muy comentada"?"warn":""}" style="white-space:nowrap" title="Solo EE.UU. · Reddit (ApeWisdom): ${r.m} menciones en 24 h (antes ${r.m24})${r.rank<999?", puesto #"+r.rank:""}${r.st?" · StockTwits: tendencia #"+r.st:""}">${esc(r.nivel)}${r.sube?" ↑":""}</span>`:'<span class="faint">–</span>';
+function redesHTML(){const R=U?.redes;
+  const top=R&&R.tickers?U.filas.filter(o=>codU(o)==="US").map(o=>({o,r:redesDe(o.bbg)})).filter(x=>x.r&&x.r.rank<999).sort((a,b)=>a.r.rank-b.r.rank).slice(0,10):[];
+  return`<details class="card" style="gap:8px"><summary style="cursor:pointer"><b>Ruido en redes sociales</b> <span class="chip">solo acciones de EE.UU.</span> <span class="faint" style="font-size:12px">${R?`actualizado ${hace(R.hora)} · fuentes: ${esc((R.fuentes||[]).join(" y "))}`:"sin datos en la última actualización"}</span></summary>
+  <div class="sub" style="display:flex;flex-direction:column;gap:6px;max-width:95ch">
+    <span><b>De dónde viene:</b> <b>Reddit</b> (r/wallstreetbets, r/stocks y otros foros), contado por <b>ApeWisdom</b> (apewisdom.io): cuántas veces se nombró cada acción en las últimas 24 horas y su puesto en el ranking; y la lista de símbolos en tendencia de <b>StockTwits</b>. Instagram, TikTok y X no tienen datos públicos, así que no están. Estas fuentes casi solo hablan de acciones de <b>EE.UU.</b>: para Asia y Europa la columna aparece vacía.</span>
+    <span><b>Cómo leerla:</b> <i>Muy comentada</i> = top 20 de Reddit o top 15 de StockTwits · <i>Comentada</i> = top 100 · <b>↑</b> = las menciones se duplicaron respecto al día anterior.</span>
+    <span><b>¿Cuánto dura?</b> No tenemos historial de redes para estimarlo; la <b>duración estimada</b> de las olas se calcula solo con precio y volumen. Las subidas impulsadas por redes suelen durar <b>1 a 2 días</b> y devolverse fuerte cuando los primeros venden. Con el desfase de ~20 min se suele llegar tarde.</span>
+    <span><b>Úsala como alerta:</b> mucho ruido + subida grande el mismo día = probable devolución, no entrar tarde. Ola con noticia real (resultados, contrato) y poco ruido = suele ser más sostenible. En el Terminal, <b>TREND &lt;GO&gt;</b> muestra lo mismo con datos de Bloomberg (incluye X/Twitter).</span>
+  </div>
+  ${top.length?`<div style="display:flex;flex-wrap:wrap;gap:6px"><span class="label">Más comentadas hoy que están en el WLS:</span>${top.map(x=>`<span class="chip" title="${x.r.m} menciones en 24 h">#${x.r.rank} ${esc(x.o.bbg.replace(" US",""))}${x.r.sube?" ↑":""}</span>`).join("")}</div>`:""}</details>`}
+function olasHTML(){
+  if(!U||!U.tendencia||!U.tendencia.length)return"";
+  const m=new Map(U.filas.map(o=>[o.t,o])),enC=new Set(cart.items.map(i=>i.t));
+  const L=U.tendencia.map(d=>({...d,o:m.get(d.t)})).filter(d=>d.o).slice(0,12);
+  return`<section class="r-sec"><div class="r-head"><span class="r-num">★</span><div><h2>Olas del mercado: acciones del WLS en tendencia</h2><p>Suben fuerte en su última sesión (≥ +3%) con volumen inusual (≥ 1,5× su promedio), precio ≥ US$5 y buena liquidez. Incluye bolsas que ya cerraron. Abajo de cada una, los titulares que podrían explicar el movimiento.</p></div></div>
+  ${olasStatsHTML()}
+  ${redesHTML()}
+  <div class="tablebox"><table><thead><tr><th>Acción · bolsa</th><th class="n">Día</th><th class="n" title="Volumen de la última sesión respecto a su promedio de 20 días">Volumen</th><th class="n">Semana</th><th class="n">Mes</th><th>vs WLS</th><th title="Solo EE.UU.: menciones en Reddit (ApeWisdom) y tendencias de StockTwits">Redes (EE.UU.)</th><th title="Promedio histórico de olas como esta en su región (y en la propia acción si tuvo 3 o más)">Duración estimada y plan</th><th>¿Por qué?</th><th></th></tr></thead><tbody>
+  ${L.map(d=>{const o=d.o,n=(d.noticias||[]);return`<tr><td><span class="tk">${esc(o.bbg)}</span><span class="nm">${esc(o.nombre||"")}</span>${bolsaChip(o.t,{bolsaBBG:o.bolsa},1)}</td>
+    <td class="n"><b>${pct(o.r1d,1)}</b></td><td class="n">${o.volx==null?"–":fmt(o.volx,1)+"×"}</td><td class="n">${pct(o.r1s,1)}</td><td class="n">${pct(o.r1m,1)}</td><td>${chipRel(relWLS(o.bbg))}</td>
+    <td>${chipRedes(redesDe(o.bbg))}</td>
+    <td style="min-width:210px;font-size:12.5px">${planOla(o)}</td>
+    <td style="min-width:260px;max-width:420px">${n.length?n.slice(0,2).map(x=>`<a href="${esc(x.url)}" target="_blank" rel="noopener" style="display:block;font-size:13px;line-height:1.35">${esc(x.titulo)}</a><span class="nm faint">${esc(x.fuente||"")}${x.fecha?" · "+hace(x.fecha):""}</span>`).join(""):`<span class="faint" style="font-size:12.5px">Sin titulares en Yahoo: revisa <b>${esc(o.bbg)} Equity CN</b> en Bloomberg.</span>`}</td>
+    <td><button class="add ${enC.has(o.t)?"on":""}" data-uadd="${esc(o.t)}" type="button" aria-label="Agregar ${esc(o.bbg)} a la cartera">${enC.has(o.t)?"✓":"+"}</button></td></tr>`}).join("")}</tbody></table></div>
+  <p class="faint" style="font-size:12px;margin:0">Cómo aprovecharlas con el desfase de ~20 min: si su bolsa está <b>abierta</b> y ya subió mucho hoy, no persigas el salto. Prefiere las que tienen una noticia de fondo (resultados, contrato, mejora de guía), tendencia también en la semana y la bolsa <b>cerrada</b>: entras al abrir la próxima sesión. Revisa la comisión (precio ≥ US$5) y que no sea una sola noticia ya digerida.</p></section>`}
 function fueraHorario(){
   const F=D.futuros||[],N=(D.noticiasMercado||[]).filter(g=>g.items&&g.items.length);if(!F.length&&!N.length)return"";
   const finde=[0,6].includes(new Date().getDay()),abiertas=["US","LN","JP","KS","TT"].filter(c=>estadoBolsa(c).fase==="abierta").length;
@@ -948,7 +997,7 @@ function ideas2(){
     <p class="muted" style="margin:-4px 0 0;font-size:13.5px">${desc}</p>
     ${items.length?`<div class="ilist2">${items.map(a=>`<button class="irow2" type="button" data-open="${a.t}">${av(a)}<span class="nm2"><b>${esc(nombreCorto(a.nombre,a.t))}</b><span>${a.t} · ${esc(a.tema)}</span></span><span class="why2">${typeof why==="function"?why(a):why}</span><span class="sp2">${spark(a.hist,110,26)}</span><span class="val"><b class="${cls}">${val(a)}</b><span>${typeof lbl==="function"?lbl(a):lbl}</span></span></button>`).join("")}</div>`:'<div class="ag-empty">Nada destacado hoy en este criterio.</div>'}`;
 }
-function renderResumenBind(){$("#tab-resumen").querySelectorAll("[data-noti]").forEach(b=>b.onclick=()=>{notiFiltro=b.dataset.noti;$("#s-news").outerHTML=secNoticias();renderResumenBind()});$("#tab-resumen").querySelectorAll("[data-idea]").forEach(b=>b.onclick=()=>{ideaTab=b.dataset.idea;const sec=$("#s-ideas");const head=sec.querySelector(".r-head").outerHTML;sec.innerHTML=head+ideas2();renderResumenBind()})}
+function renderResumenBind(){$("#tab-resumen").querySelectorAll("[data-uadd]").forEach(btn=>btn.onclick=e=>{e.stopPropagation();const o=U&&U.filas.find(x=>x.t===btn.dataset.uadd);if(!o)return;stubU(o);toggleCart(o.t)});$("#tab-resumen").querySelectorAll("[data-noti]").forEach(b=>b.onclick=()=>{notiFiltro=b.dataset.noti;$("#s-news").outerHTML=secNoticias();renderResumenBind()});$("#tab-resumen").querySelectorAll("[data-idea]").forEach(b=>b.onclick=()=>{ideaTab=b.dataset.idea;const sec=$("#s-ideas");const head=sec.querySelector(".r-head").outerHTML;sec.innerHTML=head+ideas2();renderResumenBind()})}
 function macroResumen(){
   const ev=(D.macro||[]).map(e=>({...e,dias:diasHasta(e.fecha)})).filter(e=>e.dias>=-1).slice(0,5);
   const A=D.acciones.filter(a=>a.sensTasa!=null&&a.corrTasa!=null&&Math.abs(a.corrTasa)>=0.2);
@@ -1479,7 +1528,7 @@ function scatterRK(R){
 function filaRK(x,i,enC){const f=x.f,mx=4;const w=Math.max(4,Math.min(100,(x.score+1.5)/mx*100));
   return`<tr><td class="n faint">${i+1}</td><td>${tkBtn(x.t)}<span class="nm">${esc(f.nombre||"")}</span>${bolsaChip(x.t,byT[x.t]||{bbg:f})}</td>
     <td><span class="nm" style="max-width:190px;font-size:12px;color:var(--fg)">${esc(f.ind||"–")}</span></td>
-    <td class="n">${x.gap!=null&&x.est.fase!=="abierta"?pct(x.gap,1):'<span class="faint" title="Solo se calcula con la bolsa cerrada">–</span>'}</td><td>${chipTiming(x.timing)}</td><td class="n ${x.f.px&&comIV(x.f.px)>=0.5?"down":""}">${x.f.px?fmt(comIV(x.f.px),2)+"%":"–"}</td><td>${chipRel(x.rel)}</td>
+    <td class="n">${x.gap!=null&&x.est.fase!=="abierta"?pct(x.gap,1):'<span class="faint" title="Solo se calcula con la bolsa cerrada">–</span>'}</td><td>${chipTiming(x.timing)}</td><td class="n ${x.f.px&&comIV(x.f.px)>=0.5?"down":""}">${x.f.px?fmt(comIV(x.f.px),2)+"%":"–"}</td><td>${chipRel(x.rel)}</td><td>${chipRedes(redesDe(x.t))}</td>
     <td>${f.earn?`<span class="chip ${x.win?"good":""}">${fecha(f.earn)}</span>`:'<span class="faint">–</span>'}</td>
     <td class="n">${x.mov!=null?fmt(x.mov,0)+"%":'<span class="faint">–</span>'}</td><td class="n">${pct(x.r1m,1)}</td>
     <td class="n">${x.rsi!=null?`<span class="${x.rsi>75?"down":x.rsi<30?"faint":""}">${fmt(x.rsi,0)}</span>`:'<span class="faint">–</span>'}</td>
@@ -1540,7 +1589,7 @@ function renderBBG(){
     <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center"><button class="btn primary" id="rkUsar" type="button">Usar estas 5 como mi cartera y simular</button><span class="faint" style="font-size:12px">Pone US$200.000 en cada una y te lleva a Cartera → Monte Carlo.</span></div></div>`:""}
   ${scatterRK(R)}
   <div class="card" style="padding:0;gap:0"><header style="padding:14px 16px"><h3>Ranking para el torneo</h3><span class="meta">${n?`Top ${Math.min(rkF.n,n)} de ${n.toLocaleString("es-CL")}`:"Ninguna acción pasa los filtros"}</span></header>
-  <div class="tablebox" style="border:0;border-top:1px solid var(--line);border-radius:0 0 12px 12px"><table><thead><tr><th class="n">#</th><th>Acción · bolsa</th><th>Industria</th><th class="n" title="Beta × movimiento de hoy del ETF de su país (solo con la bolsa cerrada)">Gap al abrir</th><th>Timing</th><th class="n" title="Comisión de comprar y vender (US$0,005 por acción cada vez), como % del monto">Comisión i/v</th><th title="Cómo se mueve contra el índice (mercado global como aproximación del WLS). Para ganarle al WLS sirven más las que van por su cuenta.">vs WLS</th><th>Resultados</th><th class="n">Volatilidad</th><th class="n">1 mes</th><th class="n">RSI</th><th class="n">Beta</th><th class="n">Short</th><th class="n">Upside</th><th class="n">Noticias</th><th>Puntaje</th><th><span class="sr">Cartera</span></th></tr></thead>
+  <div class="tablebox" style="border:0;border-top:1px solid var(--line);border-radius:0 0 12px 12px"><table><thead><tr><th class="n">#</th><th>Acción · bolsa</th><th>Industria</th><th class="n" title="Beta × movimiento de hoy del ETF de su país (solo con la bolsa cerrada)">Gap al abrir</th><th>Timing</th><th class="n" title="Comisión de comprar y vender (US$0,005 por acción cada vez), como % del monto">Comisión i/v</th><th title="Cómo se mueve contra el índice (mercado global como aproximación del WLS). Para ganarle al WLS sirven más las que van por su cuenta.">vs WLS</th><th title="Solo EE.UU.: menciones en Reddit (ApeWisdom) y StockTwits">Redes (EE.UU.)</th><th>Resultados</th><th class="n">Volatilidad</th><th class="n">1 mes</th><th class="n">RSI</th><th class="n">Beta</th><th class="n">Short</th><th class="n">Upside</th><th class="n">Noticias</th><th>Puntaje</th><th><span class="sr">Cartera</span></th></tr></thead>
   <tbody>${R.u.slice(0,rkF.n).map((x,i)=>filaRK(x,i,enC)).join("")}</tbody></table></div>
   ${n>rkF.n?`<div style="padding:12px 16px"><button class="btn small" id="rkMas" type="button">Ver ${Math.min(50,n-rkF.n)} más</button></div>`:""}</div>
   <details class="how"><summary>¿Cómo se calcula el puntaje?</summary><div class="sub" style="max-width:80ch;display:flex;flex-direction:column;gap:6px;margin-top:8px">
@@ -1883,9 +1932,9 @@ setInterval(()=>{if(!document.hidden)sincronizarEquipo(false)},5*60*1000);
 let U=null,vistaAcc=load("gtc-vista")||"radar",uF={q:"",bolsa:"",liq:false,abiertas:false,n:100},uSort={k:"liq",d:-1};
 const UCOLS_N={precio:1,r1d:1,r1s:1,r1m:1,r3m:1,vol20:1,liq:1,rsi:1,dist52:1};
 function cargarU(){return fetch("universo.json?v="+Date.now(),{cache:"no-store"}).then(r=>r.ok?r.json():null).then(j=>{
-  if(!j||!j.filas)return;U={generado:j.generado,n:j.n,mktvol:j.mktvol,indice:j.indice,filas:j.filas.map(f=>{const o={};j.cols.forEach((c,i)=>o[c]=f[i]);return o})};
+  if(!j||!j.filas)return;U={generado:j.generado,n:j.n,mktvol:j.mktvol,indice:j.indice,tendencia:j.tendencia||[],olaStats:j.olaStats||{},olaTicker:j.olaTicker||{},redes:j.redes||null,filas:j.filas.map(f=>{const o={};j.cols.forEach((c,i)=>o[c]=f[i]);return o})};
   U.porB=new Map(U.filas.map(o=>[claveTicker(o.bbg),o]));
-  stubsCartera();renderAcciones();renderCartera();renderBBG();renderPort()}).catch(()=>{})}
+  stubsCartera();renderAcciones();renderCartera();renderBBG();renderPort();const so=$("#s-olas");if(so){so.innerHTML=olasHTML();renderResumenBind()}}).catch(()=>{})}
 /* Relacion con el indice (ACWI como aproximacion del WLS): beta, correlacion y volatilidad propia */
 function relWLS(k){const o=U?.porB?.get(claveTicker(k));if(!o||o.corr==null)return null;
   const tipo=o.corr>=0.6?{txt:"Sigue al índice",cls:"warn"}:(o.beta??0)>=1.3?{txt:"Amplifica",cls:""}:o.corr<0.3?{txt:"Va por su cuenta",cls:"good"}:{txt:"Mixta",cls:""};
@@ -1897,7 +1946,7 @@ function stubsCartera(){if(!U)return;const m=new Map(U.filas.map(o=>[o.t,o]));ca
 const codU=o=>codigoBolsa(o.t,{bolsaBBG:o.bolsa});
 const nomBolsaU=o=>{const c=codU(o);return c==="US"?"EE.UU.":(BOLSAS[c]||{}).n||o.bolsa};
 function filasU(){if(!U)return[];const q=uF.q;
-  const a=U.filas.filter(o=>(!q||(o.bbg+" "+(o.nombre||"")+" "+o.t).toLowerCase().includes(q))&&(!uF.bolsa||nomBolsaU(o)===uF.bolsa)&&(!uF.liq||(o.liq??0)>=5)&&(!uF.abiertas||estadoBolsa(codU(o)).fase==="abierta"));
+  const a=U.filas.filter(o=>(!q||(o.bbg+" "+(o.nombre||"")+" "+o.t).toLowerCase().includes(q))&&(!uF.bolsa||nomBolsaU(o)===uF.bolsa)&&(!uF.liq||(o.liq??0)>=5)&&(!uF.abiertas||estadoBolsa(codU(o)).fase==="abierta")&&(!uF.ola||((o.r1d??0)>=3&&(o.volx??0)>=1.5)));
   const k=uSort.k,d=uSort.d;return a.sort((p,q)=>{const A=p[k],B=q[k];if(A==null)return 1;if(B==null)return-1;return(A>B?1:A<B?-1:0)*d})}
 function bindAccVista(el){el.querySelectorAll("[data-vista]").forEach(b=>b.onclick=()=>{vistaAcc=b.dataset.vista;store("gtc-vista",vistaAcc);renderAcciones()});
   const v=el.querySelector("[data-verwls]");if(v)v.onclick=()=>{vistaAcc="wls";uF.q=filtro.q;uF.n=100;store("gtc-vista",vistaAcc);renderAcciones()}}
@@ -1915,6 +1964,7 @@ function renderUni(){
     <select id="ub" aria-label="Bolsa"><option value="">Todas las bolsas</option>${Object.entries(bolsas).sort((a,b)=>b[1]-a[1]).map(([n,c])=>`<option value="${esc(n)}" ${n===uF.bolsa?"selected":""}>${esc(n)} (${c})</option>`).join("")}</select>
     <label class="chk"><input type="checkbox" id="ul" ${uF.liq?"checked":""}> Líquidas (> US$5M/día)</label>
     <label class="chk"><input type="checkbox" id="ua" ${uF.abiertas?"checked":""}> Bolsa abierta ahora</label>
+    <label class="chk" title="Día ≥ +3% con volumen ≥ 1,5× su promedio"><input type="checkbox" id="uo" ${uF.ola?"checked":""}> En ola</label>
     <span class="muted">${F.length.toLocaleString("es-CL")} de ${U.filas.length.toLocaleString("es-CL")} · precios ${hace(U.generado)}</span></div>
   <div class="tablebox"><table><thead><tr>${H.map(([k,l,n])=>`<th class="${k!=="#"?"sort":""} ${n?"n":""}" ${k!=="#"?`data-uk="${k}"`:""}>${l}${uSort.k===k?(uSort.d>0?" ↑":" ↓"):""}</th>`).join("")}<th><span class="sr">Cartera</span></th></tr></thead>
   <tbody>${F.slice(0,uF.n).map((o,i)=>{const viejo=o.fecha&&(hoy-new Date(o.fecha+"T12:00:00"))>4*864e5;return`<tr>
@@ -1967,6 +2017,7 @@ function bindUni(el){
   const b=$("#ub");if(b)b.onchange=e=>{uF.bolsa=e.target.value;uF.n=100;renderAcciones()};
   const l=$("#ul");if(l)l.onchange=e=>{uF.liq=e.target.checked;renderAcciones()};
   const a=$("#ua");if(a)a.onchange=e=>{uF.abiertas=e.target.checked;renderAcciones()};
+  const ol=$("#uo");if(ol)ol.onchange=e=>{uF.ola=e.target.checked;uF.n=100;renderAcciones()};
   const m=$("#umas");if(m)m.onclick=()=>{uF.n+=100;renderAcciones()};
   el.querySelectorAll("[data-uk]").forEach(th=>th.onclick=()=>{const k=th.dataset.uk;uSort=uSort.k===k?{k,d:-uSort.d}:{k,d:["bbg","momentum"].includes(k)?1:-1};renderAcciones()});
   el.querySelectorAll("[data-uadd]").forEach(btn=>btn.onclick=e=>{e.stopPropagation();const o=U.filas.find(x=>x.t===btn.dataset.uadd);if(!o)return;stubU(o);toggleCart(o.t)});
