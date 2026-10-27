@@ -240,7 +240,7 @@ def descargar(tickers):
     raise SystemExit("Yahoo no entrego precios suficientes. Se mantiene la version anterior.")
 
 
-def _rss(url, fuente_def):
+def _rss(url, fuente_def, maximo=None):
     """Lee un feed RSS (Yahoo Finance o Google News) sin librerias extra."""
     import urllib.request
     import xml.etree.ElementTree as ET
@@ -263,7 +263,7 @@ def _rss(url, fuente_def):
             pass
         if titulo and url_n:
             out.append({"titulo": titulo, "fuente": fuente, "url": url_n, "fecha": fecha})
-        if len(out) >= NOTICIAS_POR_EMPRESA:
+        if len(out) >= (maximo or NOTICIAS_POR_EMPRESA):
             break
     return out
 
@@ -1078,8 +1078,9 @@ def _region(t):
 
 def estudio_olas(close, volu, opens, tickers):
     """Que paso despues de cada 'ola' del ultimo ano (dia >= +3% con volumen >= 1,5x):
-    comprando en la apertura siguiente y vendiendo al cierre del dia 1, 2, 3 o 5."""
-    H = (1, 2, 3, 5)
+    comprando en la apertura siguiente y vendiendo al cierre del dia 1, 2, 3, 4, 5, 7 o 10."""
+    H = (1, 2, 3, 4, 5, 7, 10)
+    HM = max(H)
     por_reg, por_t, base, por_reg_s = {}, {}, {}, {}
     for t in tickers:
         if t not in close or t not in opens or t not in volu:
@@ -1093,7 +1094,7 @@ def estudio_olas(close, volu, opens, tickers):
         r1 = np.r_[np.nan, cv[1:] / cv[:-1] - 1]
         va = pd.Series(v).rolling(20).mean().shift(1).values
         # linea base: lo mismo para cualquier dia (para ver si la ola agrega algo)
-        idx_all = np.arange(20, len(cv) - 5)
+        idx_all = np.arange(20, len(cv) - HM)
         ent_all = o[idx_all + 1]
         okb = ent_all > 0
         if okb.any():
@@ -1106,7 +1107,7 @@ def estudio_olas(close, volu, opens, tickers):
         vb = pd.Series(v).rolling(20).mean().shift(5).values
         es = (r5 >= 0.08) & (vb > 0) & (v5 / np.where(vb > 0, vb, np.nan) >= 1.3)
         evs = np.where(es & ~np.r_[False, es[:-1]])[0]
-        evs = evs[evs + 5 < len(cv)]
+        evs = evs[evs + HM < len(cv)]
         fs = []
         for i in evs:
             ent = o[i + 1]
@@ -1115,7 +1116,7 @@ def estudio_olas(close, volu, opens, tickers):
         if fs:
             por_reg_s.setdefault(_region(t), []).append(np.array(fs))
         ev = np.where((r1 >= 0.03) & (va > 0) & (v / np.where(va > 0, va, np.nan) >= 1.5))[0]
-        ev = ev[ev + 5 < len(cv)]
+        ev = ev[ev + HM < len(cv)]
         if not len(ev):
             continue
         filas = []
@@ -1138,21 +1139,19 @@ def estudio_olas(close, volu, opens, tickers):
         for reg, lst in dic.items():
             A = np.vstack(lst)
             med = A.mean(axis=0) * 100
+            sd = A.std(axis=0) * 100
             b_ = base.get(reg)
             bm = (b_[0] / b_[1] * 100) if b_ and b_[1] else np.zeros(len(H))
-            out[reg] = {"base1": r(bm[0], 2), "base3": r(bm[2], 2), "base5": r(bm[3], 2), "n": int(len(A)),
-                        "gap": r(med[0], 2), "d1": r(med[1], 2), "d2": r(med[2], 2), "d3": r(med[3], 2), "d5": r(med[4], 2),
-                        "pos1": r((A[:, 1] > 0).mean() * 100, 0), "pos3": r((A[:, 3] > 0).mean() * 100, 0)}
+            o_ = {"n": int(len(A)), "gap": r(med[0], 2), "dias": list(H)}
+            for k, h in enumerate(H):
+                o_[f"d{h}"] = r(med[k + 1], 2)
+                o_[f"base{h}"] = r(bm[k], 2)
+                o_[f"pos{h}"] = r((A[:, k + 1] > 0).mean() * 100, 0)
+                o_[f"sd{h}"] = r(sd[k + 1], 2)
+            o_["pico"] = H[int(np.argmax(med[1:] - bm))]
+            out[reg] = o_
         return out
-    stats = {}
-    for reg, lst in por_reg.items():
-        A = np.vstack(lst)
-        med = A.mean(axis=0) * 100
-        pico = int(np.argmax(med[1:]))
-        b_ = base.get(reg)
-        bm = (b_[0] / b_[1] * 100) if b_ and b_[1] else np.zeros(len(H))
-        stats[reg] = {"base1": r(bm[0], 2), "base3": r(bm[2], 2), "base5": r(bm[3], 2), "n": int(len(A)), "gap": r(med[0], 2), "d1": r(med[1], 2), "d2": r(med[2], 2), "d3": r(med[3], 2), "d5": r(med[4], 2),
-                      "pos1": r((A[:, 1] > 0).mean() * 100, 0), "pos3": r((A[:, 3] > 0).mean() * 100, 0), "pico": H[pico]}
+    stats = resumen(por_reg)
     stats_s = resumen(por_reg_s)
     return stats, por_t, stats_s
 
@@ -1299,6 +1298,62 @@ def rapido_universo(u):
 
 
 # ---------------- CANDIDATAS para la Mesa de decisiones (mesa.html) ----------------
+
+def resultados_trimestrales(tk):
+    """Ultimos 5 trimestres: [fecha, ventas, utilidad neta] en millones de la moneda del reporte."""
+    try:
+        q = tk.quarterly_income_stmt
+        if q is None or q.empty:
+            return None
+        fila = lambda *nombres: next((q.loc[n] for n in nombres if n in q.index), None)
+        ven = fila("Total Revenue", "Operating Revenue")
+        uti = fila("Net Income", "Net Income Common Stockholders")
+        out = []
+        for c in sorted(q.columns)[-5:]:
+            v = ven.get(c) if ven is not None else None
+            u = uti.get(c) if uti is not None else None
+            out.append([pd.Timestamp(c).date().isoformat(), r(v / 1e6, 1) if v is not None and pd.notna(v) else None,
+                        r(u / 1e6, 1) if u is not None and pd.notna(u) else None])
+        return out
+    except Exception:
+        return None
+
+
+def sensibilidades(close, ts):
+    """Para cada accion (en dolares): como se mueve con el WLS (ACWI), con el miedo (VIX) y con el dolar (DXY).
+    Usa retornos semanales de 1 ano (las bolsas de Asia y EE.UU. cierran a distinta hora, asi se evita el desfase)."""
+    out = {}
+    c = close.ffill(limit=3)
+    sem = c.resample("W-FRI").last()
+    ref = {k: sem[k].pct_change(fill_method=None) for k in ("ACWI", "^VIX", "DX-Y.NYB") if k in sem}
+    for t in ts:
+        if t not in c or c[t].notna().sum() < 60:
+            continue
+        mon = next((SUF2MON[s_] for s_ in SUF2MON if t.endswith(s_)), None)
+        px = c[t]
+        if mon and f"{mon[0]}=X" in c:
+            px = px / (c[f"{mon[0]}=X"] * mon[1])   # precio en dolares
+        rs = px.resample("W-FRI").last().pct_change(fill_method=None)
+        o = {"mon": mon[0] if mon else "USD"}
+        for k, nom in (("ACWI", "Wls"), ("^VIX", "Vix"), ("DX-Y.NYB", "Dxy")):
+            if k not in ref:
+                continue
+            j = pd.concat([rs, ref[k]], axis=1).dropna()
+            if len(j) < 20 or j.iloc[:, 1].std() == 0:
+                continue
+            cv = np.cov(j.iloc[:, 0], j.iloc[:, 1])
+            o["beta" + nom] = r(cv[0, 1] / cv[1, 1], 2)
+            o["corr" + nom] = r(j.iloc[:, 0].corr(j.iloc[:, 1]), 2)
+        # grafico: accion en dolares vs ACWI (aprox. del WLS), ambos en base 100, ultimos ~6 meses
+        if "ACWI" in c:
+            j = pd.concat([px, c["ACWI"]], axis=1).dropna().tail(125)
+            if len(j) > 20:
+                o["vs"] = [[r(a / j.iloc[0, 0] * 100, 1) for a in j.iloc[:, 0]], [r(b / j.iloc[0, 1] * 100, 1) for b in j.iloc[:, 1]]]
+                o["vsIni"] = j.index[0].date().isoformat()
+        out[t] = o
+    return out
+
+
 def construir_candidatas(uni, previo=None, maximo=90):
     """Elige ~90 acciones para analizar a fondo: olas de hoy y de la semana, las mejores por factores de precio
     y la cartera actual. Para cada una trae analistas, resultados, noticias, grafico de 6 meses y relacionadas."""
@@ -1332,7 +1387,11 @@ def construir_candidatas(uni, previo=None, maximo=90):
     noticias_ola = {d["t"]: d for d in uni.get("tendencia", []) + uni.get("tendenciaSemana", [])}
     print(f"Candidatas: {len(ts)} acciones")
     # grafico de 6 meses y relacionadas (correlacion de 90 dias entre las candidatas)
-    close, _ = _bajar(ts, "6mo", lote=100, reintentar=False)
+    monedas = sorted({SUF2MON[s_][0] for t in ts for s_ in SUF2MON if t.endswith(s_)})
+    refs = ["ACWI", "^VIX", "DX-Y.NYB"] + [f"{m}=X" for m in monedas]
+    close, _ = _bajar(ts + refs, "1y", lote=100, reintentar=False)
+    sens = sensibilidades(close, ts) if not close.empty else {}
+    close = close[[c for c in close.columns if c in ts]] if not close.empty else close
     rets = close.ffill(limit=2).pct_change(fill_method=None).tail(90) if not close.empty else pd.DataFrame()
     corr = rets.corr(min_periods=40) if not rets.empty else pd.DataFrame()
     items = []
@@ -1360,7 +1419,9 @@ def construir_candidatas(uni, previo=None, maximo=90):
                        "utilidad": r((x.get("earningsGrowth") or 0) * 100, 1) if x.get("earningsGrowth") is not None else None,
                        "margen": r((x.get("profitMargins") or 0) * 100, 1) if x.get("profitMargins") is not None else None,
                        "pe": r(x.get("trailingPE"), 1), "peFwd": r(x.get("forwardPE"), 1),
-                       "earn": datetime.fromtimestamp(ets, timezone.utc).date().isoformat() if ets else None}
+                       "earn": datetime.fromtimestamp(ets, timezone.utc).date().isoformat() if ets else None,
+                       "mon": x.get("financialCurrency") or x.get("currency"), "mcap": x.get("marketCap"),
+                       "trim": resultados_trimestrales(tk)}
             except Exception as e:
                 print(f"  {t}: sin info ({e.__class__.__name__})")
             it["info"], it["infoHora"] = inf, datetime.now(timezone.utc).isoformat(timespec="minutes")
@@ -1380,11 +1441,260 @@ def construir_candidatas(uni, previo=None, maximo=90):
             h = close[t].dropna().tail(120)
             it["hist"] = [r(x, 4) for x in h.tolist()]
             it["histIni"] = h.index[0].date().isoformat() if len(h) else None
+        if t in sens:
+            it["sens"] = sens[t]
         if t in corr:
             c = corr[t].drop(labels=[t], errors="ignore").dropna().sort_values(ascending=False)
             it["rel"] = [[k, r(float(val), 2)] for k, val in c.head(3).items() if val >= 0.4]
         items.append(it)
     return {"generado": datetime.now(timezone.utc).isoformat(timespec="minutes"), "items": items}
+
+
+
+# ---------------- PANORAMA DEL MERCADO (para la Mesa de decisiones) ----------------
+PANORAMA = {
+    # indices
+    "^GSPC": ("S&P 500", "indice"), "^IXIC": ("Nasdaq", "indice"), "^DJI": ("Dow Jones", "indice"),
+    "^RUT": ("Russell 2000 (small caps)", "indice"), "ACWI": ("Mundo (ACWI ≈ WLS)", "indice"),
+    "^STOXX50E": ("Euro Stoxx 50", "indice"), "^GDAXI": ("DAX Alemania", "indice"), "^FTSE": ("FTSE 100 Londres", "indice"),
+    "^N225": ("Nikkei Japón", "indice"), "^KS11": ("KOSPI Corea", "indice"), "^TWII": ("Taiwán", "indice"),
+    "^HSI": ("Hang Seng", "indice"), "000001.SS": ("Shanghai", "indice"), "^NSEI": ("Nifty India", "indice"),
+    "^BVSP": ("Bovespa Brasil", "indice"), "^IPSA": ("IPSA Chile", "indice"),
+    # riesgo y tasas
+    "^VIX": ("VIX (índice del miedo)", "riesgo"), "^TNX": ("Tasa 10 años EE.UU.", "tasa"),
+    # divisas (DXY: dolar contra 6 monedas; X=X: cuantas unidades locales por 1 dolar)
+    "DX-Y.NYB": ("Dólar global (DXY)", "divisa"), "CLP=X": ("USD/CLP (peso chileno)", "divisa"),
+    "EURUSD=X": ("EUR/USD (euro)", "divisa"), "JPY=X": ("USD/JPY (yen)", "divisa"), "KRW=X": ("USD/KRW (won)", "divisa"),
+    "TWD=X": ("USD/TWD (dólar taiwanés)", "divisa"), "CNY=X": ("USD/CNY (yuan)", "divisa"), "INR=X": ("USD/INR (rupia)", "divisa"),
+    "GBPUSD=X": ("GBP/USD (libra)", "divisa"), "BRL=X": ("USD/BRL (real)", "divisa"),
+    # materias primas y cripto
+    "CL=F": ("Petróleo WTI", "materia"), "GC=F": ("Oro", "materia"), "HG=F": ("Cobre", "materia"), "BTC-USD": ("Bitcoin", "materia"),
+    # sectores de EE.UU. (ETF)
+    "XLK": ("Tecnología", "sector"), "SMH": ("Semiconductores", "sector"), "XLF": ("Bancos y financieras", "sector"),
+    "XLE": ("Energía", "sector"), "XLV": ("Salud", "sector"), "XLY": ("Consumo discrecional", "sector"),
+    "XLP": ("Consumo básico", "sector"), "XLI": ("Industria", "sector"), "XLB": ("Materiales", "sector"),
+    "XLU": ("Servicios básicos", "sector"), "XLRE": ("Inmobiliario", "sector"), "XLC": ("Comunicaciones", "sector"),
+    # gigantes que mueven al Nasdaq y al S&P
+    "NVDA": ("Nvidia", "gigante"), "MSFT": ("Microsoft", "gigante"), "AAPL": ("Apple", "gigante"), "AMZN": ("Amazon", "gigante"),
+    "GOOGL": ("Alphabet (Google)", "gigante"), "META": ("Meta", "gigante"), "AVGO": ("Broadcom", "gigante"), "TSLA": ("Tesla", "gigante"),
+}
+INTRADIA = ["^IXIC", "^GSPC", "^VIX", "DX-Y.NYB", "^TNX"]
+NOTICIAS_GENERALES = [
+    ("stock market today", "en"), ("Nasdaq S&P 500 stocks why", "en"), ("Federal Reserve rates markets", "en"),
+    ("dollar currency markets", "en"), ("Wall Street hoy bolsas", "es"),
+]
+TEMAS_NOTICIAS = {
+    "Fed y tasas": r"\b(fed|fomc|powell|rate cut|rate hike|interest rate|tasas?|bond yield|treasur)",
+    "Inflación": r"(inflation|cpi|pce|ppi|inflaci)",
+    "Empleo": r"(jobs report|payroll|unemployment|jobless|empleo)",
+    "Resultados de empresas": r"(earnings|results|quarter|guidance|revenue|beats|misses|resultados)",
+    "IA y chips": r"(\bai\b|artificial intelligence|nvidia|chip|semiconductor|data center|openai)",
+    "Petróleo y energía": r"(oil|crude|opec|petr[oó]leo|energy)",
+    "China y comercio": r"(china|tariff|trade war|arancel|beijing|xi jinping)",
+    "Dólar y divisas": r"(dollar|currency|yen|euro\b|d[oó]lar|forex)",
+    "Elecciones y política": r"(election|midterm|congress|senate|white house|trump|elecci)",
+    "Cripto": r"(bitcoin|crypto|ether)",
+}
+
+
+def _serie_info(c, t):
+    s_ = c[t].dropna() if t in c else pd.Series(dtype=float)
+    if len(s_) < 2:
+        return None
+    v = lambda n: r((float(s_.iloc[-1]) / float(s_.iloc[-1 - n]) - 1) * 100, 2) if len(s_) > n else None
+    nom, grp = PANORAMA[t]
+    o = {"t": t, "nombre": nom, "grupo": grp, "precio": r(float(s_.iloc[-1]), 4), "fecha": s_.index[-1].date().isoformat(),
+         "r1d": v(1), "r1s": v(5), "r1m": v(21), "r3m": v(63), "r1y": v(250)}
+    if grp == "tasa":   # la tasa se mide en puntos base
+        bp = lambda n: r((float(s_.iloc[-1]) - float(s_.iloc[-1 - n])) * 100, 0) if len(s_) > n else None
+        o.update({"r1d": bp(1), "r1s": bp(5), "r1m": bp(21), "r3m": bp(63), "r1y": bp(250)})
+    return o
+
+
+def _noticias_generales(yf):
+    import urllib.parse
+    import re
+    items = []
+    for q, idioma in NOTICIAS_GENERALES:
+        loc = "hl=es-419&gl=CL&ceid=CL:es-419" if idioma == "es" else "hl=en-US&gl=US&ceid=US:en"
+        try:
+            items += [dict(x, idioma=idioma) for x in _rss(f"https://news.google.com/rss/search?q={urllib.parse.quote(q)}+when:1d&{loc}", "Google News", 15)]
+        except Exception:
+            pass
+    for t in ("^GSPC", "^IXIC"):
+        try:
+            items += [dict(x, idioma="en") for x in _noticias_yf(yf.Ticker(t))]
+        except Exception:
+            pass
+    vistos, out = set(), []
+    for x in sorted(items, key=lambda x: x.get("fecha") or "", reverse=True):
+        k = re.sub(r"[^a-z0-9]", "", x["titulo"].lower())[:50]
+        if k in vistos:
+            continue
+        vistos.add(k)
+        x["temas"] = [tm for tm, rx in TEMAS_NOTICIAS.items() if re.search(rx, x["titulo"], re.I)]
+        out.append(x)
+    return out[:40]
+
+
+def _yahoo_trending():
+    import urllib.request
+    try:
+        req = urllib.request.Request("https://query1.finance.yahoo.com/v1/finance/trending/US?count=25",
+                                     headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            j = json.loads(resp.read())
+        return [q["symbol"] for q in j["finance"]["result"][0]["quotes"] if q.get("symbol")]
+    except Exception as e:
+        print(f"  trending no disponible ({e.__class__.__name__})")
+        return []
+
+
+def _acciones_tendencia(yf, uni, previo):
+    """Acciones en tendencia en Yahoo (EE.UU.) + las que mas suben, caen y se transan hoy, con su noticia."""
+    listas = {"trending": _yahoo_trending()}
+    datos = {}
+    for clave, nom in (("day_gainers", "suben"), ("day_losers", "caen"), ("most_actives", "activas")):
+        try:
+            res = yf.screen(clave, count=25)
+            qs = res.get("quotes", []) if isinstance(res, dict) else []
+        except Exception as e:
+            print(f"  lista {clave} no disponible ({e.__class__.__name__})")
+            qs = []
+        listas[nom] = []
+        for q in qs:
+            t = q.get("symbol")
+            if not t:
+                continue
+            listas[nom].append(t)
+            datos[t] = {"nombre": q.get("shortName") or q.get("longName"), "precio": r(q.get("regularMarketPrice")),
+                        "r1d": r(q.get("regularMarketChangePercent"), 2), "mcap": q.get("marketCap"),
+                        "volx": r((q.get("regularMarketVolume") or 0) / q["averageDailyVolume3Month"], 1) if q.get("averageDailyVolume3Month") else None}
+        time.sleep(0.5)
+    falta = [t for t in listas["trending"] if t not in datos]
+    if falta:
+        c, v = _bajar(falta, "3mo", lote=50, reintentar=False)
+        for t in falta:
+            if t in c and c[t].dropna().size >= 2:
+                s_ = c[t].dropna()
+                vv = v[t].dropna() if t in v else pd.Series(dtype=float)
+                datos[t] = {"precio": r(float(s_.iloc[-1])), "r1d": r((float(s_.iloc[-1]) / float(s_.iloc[-2]) - 1) * 100, 2),
+                            "volx": r(float(vv.iloc[-1]) / float(vv.iloc[-21:-1].mean()), 1) if len(vv) > 21 and vv.iloc[-21:-1].mean() > 0 else None}
+    filas = {f[0]: f for f in (uni or {}).get("filas", [])}
+    ix = {c_: i for i, c_ in enumerate((uni or {}).get("cols", []))}
+    viejas = (previo or {}).get("notTk", {})
+    notTk = {}
+    usadas = list(dict.fromkeys(listas["trending"][:20] + listas.get("suben", [])[:12] + listas.get("caen", [])[:12] + listas.get("activas", [])[:10]))
+    for t in usadas:
+        vj = viejas.get(t)
+        if vj and _edad_min(vj.get("h") or "") < 90:
+            notTk[t] = vj
+            continue
+        try:
+            time.sleep(0.3)
+            notTk[t] = {"n": _noticias_yf(yf.Ticker(t))[:3], "h": datetime.now(timezone.utc).isoformat(timespec="minutes")}
+        except Exception:
+            notTk[t] = {"n": [], "h": datetime.now(timezone.utc).isoformat(timespec="minutes")}
+    out = {}
+    for nom, lst in listas.items():
+        fl = []
+        for t in lst[:25]:
+            d = dict(datos.get(t) or {})
+            f = filas.get(t)
+            if f is not None:
+                d["enWLS"] = True
+                d["bbg"] = f[ix["bbg"]] if "bbg" in ix else None
+                d["nombre"] = d.get("nombre") or (f[ix["nombre"]] if "nombre" in ix else None)
+            d["t"] = t
+            d["noticias"] = (notTk.get(t) or {}).get("n", [])
+            fl.append(d)
+        out[nom] = fl
+    return out, notTk
+
+
+def _resultados_grandes(yf, uni, previo, maximo_nuevas=30):
+    """Fechas de resultados de las empresas mas grandes y transadas del WLS (y lideres que mueven al mercado)."""
+    filas = (uni or {}).get("filas", [])
+    ix = {c_: i for i, c_ in enumerate((uni or {}).get("cols", []))}
+    tops = []
+    if filas and "liq" in ix:
+        tops = [f[0] for f in sorted(filas, key=lambda f: -(f[ix["liq"]] or 0))[:70]]
+    tops = list(dict.fromkeys(tops + list(LIDERES_EXTRA)))
+    viejos = {d["t"]: d for d in (previo or {}).get("grandes", [])}
+    out, nuevas = [], 0
+    for t in tops:
+        v = viejos.get(t)
+        if v and _edad_min(v.get("h") or "") < 1440:
+            out.append(v)
+            continue
+        if nuevas >= maximo_nuevas:
+            if v:
+                out.append(v)
+            continue
+        nuevas += 1
+        try:
+            time.sleep(0.4)
+            x = yf.Ticker(t).info or {}
+            ets = x.get("earningsTimestamp") or x.get("earningsTimestampStart")
+            out.append({"t": t, "nombre": x.get("shortName") or x.get("longName"), "sector": x.get("sector"), "industria": x.get("industry"),
+                        "mcap": x.get("marketCap"), "earn": datetime.fromtimestamp(ets, timezone.utc).date().isoformat() if ets else None,
+                        "enWLS": t not in LIDERES_EXTRA or any(f[0] == t for f in filas),
+                        "h": datetime.now(timezone.utc).isoformat(timespec="minutes")})
+        except Exception:
+            if v:
+                out.append(v)
+    return out
+
+
+def construir_panorama(uni=None, previo=None):
+    """mercado.json: indices, VIX, dolar y monedas, sectores, gigantes, intradia de hoy, noticias y acciones en tendencia."""
+    import yfinance as yf
+    ts = list(PANORAMA)
+    c, _ = _bajar(ts, "2y", lote=100, reintentar=False)
+    if c.empty:
+        return previo
+    series = [o for o in (_serie_info(c, t) for t in ts) if o]
+    cc = c.ffill(limit=4).tail(400)
+    hist = {"fechas": [d.date().isoformat() for d in cc.index],
+            "s": {t: [r(x, 4) for x in cc[t].tolist()] for t in ts if t in cc and cc[t].notna().sum() > 30}}
+    intradia = None
+    try:
+        di = yf.download(INTRADIA, period="5d", interval="5m", progress=False, auto_adjust=True, group_by="column", threads=True)
+        ci = di["Close"] if "Close" in di else di
+        base = ci["^IXIC"].dropna()
+        if len(base):
+            dia = base.index[-1].date()
+            ci = ci[[x.date() == dia for x in ci.index]].ffill()
+            # cierre de la sesion anterior para medir el % del dia
+            prev = {t: (c[t].dropna()[c[t].dropna().index.date < dia].iloc[-1] if t in c and (c[t].dropna().index.date < dia).any() else None) for t in INTRADIA}
+            intradia = {"dia": dia.isoformat(), "horas": [x.tz_convert("UTC").isoformat()[:16] if x.tzinfo else x.isoformat()[:16] for x in ci.index],
+                        "s": {t: [r(x, 4) for x in ci[t].tolist()] for t in INTRADIA if t in ci},
+                        "prev": {t: r(float(v), 4) for t, v in prev.items() if v is not None}}
+    except Exception as e:
+        print(f"  intradia no disponible ({e.__class__.__name__})")
+    p = previo or {}
+    if _edad_min(p.get("notHora") or "") >= 25:
+        noticias, not_hora = _noticias_generales(yf), datetime.now(timezone.utc).isoformat(timespec="minutes")
+    else:
+        noticias, not_hora = p.get("noticias", []), p.get("notHora")
+    if _edad_min(p.get("tendHora") or "") >= 25:
+        try:
+            tend, notTk = _acciones_tendencia(yf, uni, p)
+        except Exception as e:
+            print(f"  acciones en tendencia fallo ({e.__class__.__name__}: {e})")
+            tend, notTk = p.get("tendencia", {}), p.get("notTk", {})
+        tend_hora = datetime.now(timezone.utc).isoformat(timespec="minutes")
+    else:
+        tend, notTk, tend_hora = p.get("tendencia", {}), p.get("notTk", {}), p.get("tendHora")
+    try:
+        grandes = _resultados_grandes(yf, uni, p)
+    except Exception as e:
+        print(f"  resultados de grandes fallo ({e.__class__.__name__})")
+        grandes = p.get("grandes", [])
+    print(f"Panorama: {len(series)} series, {len(noticias)} noticias, {sum(len(v) for v in tend.values())} en tendencia, {len(grandes)} grandes")
+    return {"generado": datetime.now(timezone.utc).isoformat(timespec="minutes"), "series": series, "hist": hist,
+            "intradia": intradia or p.get("intradia"), "noticias": noticias, "notHora": not_hora,
+            "tendencia": tend, "notTk": notTk, "tendHora": tend_hora, "grandes": grandes, "macro": EVENTOS_MACRO}
 
 
 # ---------------- MODO AUTOMATICO (GitHub cada 15 minutos) ----------------
@@ -1609,6 +1919,15 @@ def auto():
             cand = construir_candidatas(uni, cand_prev) or cand_prev
         except Exception as e:
             print(f"Candidatas fallo ({e.__class__.__name__}: {e}); se mantienen las anteriores")
+    pan_prev = _bajar_json(sitio + "mercado.json")
+    pan = pan_prev
+    if publicar and _edad_min((pan_prev or {}).get("generado") or "") >= 12:
+        try:
+            pan = construir_panorama(uni, pan_prev) or pan_prev
+        except Exception as e:
+            print(f"Panorama fallo ({e.__class__.__name__}: {e}); se mantiene el anterior")
+    if publicar and pan:
+        _guardar(pan, "docs/mercado.json")
     if publicar and uni:
         _guardar(uni, "docs/universo.json")
     if publicar and cand:
