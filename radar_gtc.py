@@ -1292,6 +1292,95 @@ def rapido_universo(u):
     return u
 
 
+# ---------------- CANDIDATAS para la Mesa de decisiones (mesa.html) ----------------
+def construir_candidatas(uni, previo=None, maximo=90):
+    """Elige ~90 acciones para analizar a fondo: olas de hoy y de la semana, las mejores por factores de precio
+    y la cartera actual. Para cada una trae analistas, resultados, noticias, grafico de 6 meses y relacionadas."""
+    import yfinance as yf
+    if not uni or not uni.get("filas"):
+        return previo
+    ix = {c: i for i, c in enumerate(uni["cols"])}
+    g = lambda f, c: f[ix[c]] if c in ix and ix[c] < len(f) else None
+    filas = {f[0]: f for f in uni["filas"]}
+    origen = {}
+    for d in uni.get("tendencia", []):
+        origen.setdefault(d["t"], set()).add("ola-hoy")
+    for d in uni.get("tendenciaSemana", []):
+        origen.setdefault(d["t"], set()).add("ola-semana")
+    # mejores por factores de precio (momentum 1 ano - 1 mes, volatilidad 90d, beta), liquidas y >= US$5
+    ok = [f for f in uni["filas"] if (g(f, "liq") or 0) >= 2 and (g(f, "pxusd") or 0) >= 5
+          and g(f, "r1y") is not None and g(f, "r1m") is not None and g(f, "vol90") is not None]
+    if ok:
+        def z(vals):
+            v = np.array([x if x is not None else np.nan for x in vals], float)
+            m, sd = np.nanmean(v), np.nanstd(v) or 1
+            return np.clip(np.nan_to_num((v - m) / sd), -3, 3)
+        pre = (0.25 * z([g(f, "r1y") - g(f, "r1m") for f in ok]) + 0.20 * z([g(f, "vol90") for f in ok])
+               + 0.15 * z([g(f, "beta") for f in ok]))
+        for k in np.argsort(-pre)[:40]:
+            origen.setdefault(ok[k][0], set()).add("factores")
+    for t in leer_equipo():
+        origen.setdefault(t, set()).add("cartera")
+    ts = [t for t in origen if t in filas][:maximo]
+    viejos = {d["t"]: d for d in (previo or {}).get("items", [])}
+    noticias_ola = {d["t"]: d for d in uni.get("tendencia", []) + uni.get("tendenciaSemana", [])}
+    print(f"Candidatas: {len(ts)} acciones")
+    # grafico de 6 meses y relacionadas (correlacion de 90 dias entre las candidatas)
+    close, _ = _bajar(ts, "6mo", lote=100, reintentar=False)
+    rets = close.ffill(limit=2).pct_change(fill_method=None).tail(90) if not close.empty else pd.DataFrame()
+    corr = rets.corr(min_periods=40) if not rets.empty else pd.DataFrame()
+    items = []
+    for t in ts:
+        f, v = filas[t], viejos.get(t) or {}
+        it = {"t": t, "bbg": g(f, "bbg"), "nombre": g(f, "nombre"), "origen": sorted(origen[t])}
+        # analistas y resultados: se reutilizan 12 horas
+        if v.get("info") and _edad_min(v.get("infoHora") or "") < 720:
+            it["info"], it["infoHora"] = v["info"], v["infoHora"]
+        else:
+            inf = {}
+            try:
+                time.sleep(0.4)
+                tk = yf.Ticker(t)
+                x = tk.info or {}
+                pxa = x.get("currentPrice") or x.get("regularMarketPrice")
+                tgt = x.get("targetMeanPrice")
+                ets = x.get("earningsTimestamp") or x.get("earningsTimestampStart")
+                inf = {"nombre": x.get("shortName") or x.get("longName"), "sector": x.get("sector"), "industria": x.get("industry"),
+                       "pais": x.get("country"), "desc": ((x.get("longBusinessSummary") or "").split(". ")[0])[:240] or None,
+                       "reco": x.get("recommendationKey"), "recoMedia": r(x.get("recommendationMean"), 2),
+                       "nAnalistas": x.get("numberOfAnalystOpinions"), "target": r(tgt),
+                       "upside": r((tgt / pxa - 1) * 100, 1) if tgt and pxa else None,
+                       "ventas": r((x.get("revenueGrowth") or 0) * 100, 1) if x.get("revenueGrowth") is not None else None,
+                       "utilidad": r((x.get("earningsGrowth") or 0) * 100, 1) if x.get("earningsGrowth") is not None else None,
+                       "margen": r((x.get("profitMargins") or 0) * 100, 1) if x.get("profitMargins") is not None else None,
+                       "pe": r(x.get("trailingPE"), 1), "peFwd": r(x.get("forwardPE"), 1),
+                       "earn": datetime.fromtimestamp(ets, timezone.utc).date().isoformat() if ets else None}
+            except Exception as e:
+                print(f"  {t}: sin info ({e.__class__.__name__})")
+            it["info"], it["infoHora"] = inf, datetime.now(timezone.utc).isoformat(timespec="minutes")
+        # noticias: de la ola si ya las hay, si no se buscan (6 horas)
+        nz = noticias_ola.get(t)
+        if nz and nz.get("noticias"):
+            it["noticias"] = nz["noticias"]
+        elif v.get("noticias") is not None and _edad_min(v.get("notHora") or "") < 360:
+            it["noticias"], it["notHora"] = v["noticias"], v.get("notHora")
+        else:
+            try:
+                it["noticias"] = (leer_noticias(yf.Ticker(t), t, it["nombre"]) or [])[:4]
+            except Exception:
+                it["noticias"] = []
+            it["notHora"] = datetime.now(timezone.utc).isoformat(timespec="minutes")
+        if t in close:
+            h = close[t].dropna().tail(120)
+            it["hist"] = [r(x, 4) for x in h.tolist()]
+            it["histIni"] = h.index[0].date().isoformat() if len(h) else None
+        if t in corr:
+            c = corr[t].drop(labels=[t], errors="ignore").dropna().sort_values(ascending=False)
+            it["rel"] = [[k, r(float(val), 2)] for k, val in c.head(3).items() if val >= 0.4]
+        items.append(it)
+    return {"generado": datetime.now(timezone.utc).isoformat(timespec="minutes"), "items": items}
+
+
 # ---------------- MODO AUTOMATICO (GitHub cada 15 minutos) ----------------
 FUTUROS = {"ES=F": "S&P 500 (futuro)", "NQ=F": "Nasdaq 100 (futuro)", "NKD=F": "Nikkei 225 (futuro CME)",
            "CL=F": "Petróleo WTI", "GC=F": "Oro", "BTC-USD": "Bitcoin (opera 24/7)"}
@@ -1443,6 +1532,8 @@ def auto():
     habil = ahora.weekday() < 5 or (ahora.weekday() == 6 and ahora.hour >= 22)  # lunes a viernes (+ domingo noche: abre Asia)
     previos = {k: _bajar_json(sitio + os.path.basename(v)) for k, v in ARCHIVOS.items()}
     uni_prev = _bajar_json(sitio + "universo.json")
+    cand_prev = _bajar_json(sitio + "candidatos.json")
+    cand = cand_prev
     gen = previos.get("general")
     edad_full = _edad_min((gen or {}).get("completo") or (gen or {}).get("ultimoCompleto") or "") if gen else 1e9
     edad_act = _edad_min((gen or {}).get("generado") or "") if gen else 1e9
@@ -1507,8 +1598,15 @@ def auto():
     else:
         print("Fin de semana: no hay nada nuevo que publicar todavia")
         publicar = False
+    if publicar and uni and (habil or manual or not cand_prev) and _edad_min((cand_prev or {}).get("generado") or "") >= 55:
+        try:
+            cand = construir_candidatas(uni, cand_prev) or cand_prev
+        except Exception as e:
+            print(f"Candidatas fallo ({e.__class__.__name__}: {e}); se mantienen las anteriores")
     if publicar and uni:
         _guardar(uni, "docs/universo.json")
+    if publicar and cand:
+        _guardar(cand, "docs/candidatos.json")
     salida = os.environ.get("GITHUB_OUTPUT")
     if salida:
         with open(salida, "a") as f:
