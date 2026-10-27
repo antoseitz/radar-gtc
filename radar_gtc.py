@@ -12,7 +12,7 @@ import json
 import os
 import sys
 import time
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 import numpy as np
 import pandas as pd
@@ -1399,14 +1399,22 @@ def construir_candidatas(uni, previo=None, maximo=90):
         f, v = filas[t], viejos.get(t) or {}
         it = {"t": t, "bbg": g(f, "bbg"), "nombre": g(f, "nombre"), "origen": sorted(origen[t])}
         # analistas y resultados: se reutilizan 12 horas
-        if v.get("info") and _edad_min(v.get("infoHora") or "") < 720:
+        if v.get("info") and (v["info"].get("nombre") or v["info"].get("reco")) and _edad_min(v.get("infoHora") or "") < 720:
             it["info"], it["infoHora"] = v["info"], v["infoHora"]
         else:
             inf = {}
             try:
                 time.sleep(0.4)
                 tk = yf.Ticker(t)
-                x = tk.info or {}
+                x = {}
+                for intento in range(2):
+                    try:
+                        x = tk.info or {}
+                    except Exception as e:
+                        print(f"  {t}: info fallo ({e.__class__.__name__}), reintento")
+                    if x.get("shortName") or x.get("longName") or x.get("recommendationKey"):
+                        break
+                    time.sleep(3)
                 pxa = x.get("currentPrice") or x.get("regularMarketPrice")
                 tgt = x.get("targetMeanPrice")
                 ets = x.get("earningsTimestamp") or x.get("earningsTimestampStart")
@@ -1550,6 +1558,24 @@ def _yahoo_trending():
         return []
 
 
+def noticias_recientes(yf, t, nombre=None, horas=48):
+    """Titulares de las ultimas ~48 h de una accion (Yahoo, luego Google News del dia)."""
+    import urllib.parse
+    lim = (datetime.now(timezone.utc) - timedelta(hours=horas)).isoformat()[:16]
+    out = []
+    try:
+        out = [x for x in (leer_noticias(yf.Ticker(t), t, nombre) or []) if (x.get("fecha") or "") >= lim]
+    except Exception:
+        out = []
+    if not out:
+        try:
+            q = urllib.parse.quote(f'{nombre or t} {t} stock')
+            out = _rss(f"https://news.google.com/rss/search?q={q}+when:2d&hl=en-US&gl=US&ceid=US:en", "Google News", 3)
+        except Exception:
+            out = []
+    return out[:3]
+
+
 def _acciones_tendencia(yf, uni, previo):
     """Acciones en tendencia en Yahoo (EE.UU.) + las que mas suben, caen y se transan hoy, con su noticia."""
     listas = {"trending": _yahoo_trending()}
@@ -1590,11 +1616,8 @@ def _acciones_tendencia(yf, uni, previo):
         if vj and _edad_min(vj.get("h") or "") < 90:
             notTk[t] = vj
             continue
-        try:
-            time.sleep(0.3)
-            notTk[t] = {"n": _noticias_yf(yf.Ticker(t))[:3], "h": datetime.now(timezone.utc).isoformat(timespec="minutes")}
-        except Exception:
-            notTk[t] = {"n": [], "h": datetime.now(timezone.utc).isoformat(timespec="minutes")}
+        time.sleep(0.3)
+        notTk[t] = {"n": noticias_recientes(yf, t, (datos.get(t) or {}).get("nombre")), "h": datetime.now(timezone.utc).isoformat(timespec="minutes")}
     out = {}
     for nom, lst in listas.items():
         fl = []
@@ -1663,8 +1686,9 @@ def construir_panorama(uni=None, previo=None):
         ci = di["Close"] if "Close" in di else di
         base = ci["^IXIC"].dropna()
         if len(base):
-            dia = base.index[-1].date()
-            ci = ci[[x.date() == dia for x in ci.index]].ffill()
+            dia = (base.index.tz_convert("America/New_York") if base.index.tz is not None else base.index)[-1].date()
+            ny = ci.index.tz_convert("America/New_York") if ci.index.tz is not None else ci.index
+            ci = ci[[(x.date() == dia) and (9.5 <= x.hour + x.minute / 60 <= 16) for x in ny]].ffill()
             # cierre de la sesion anterior para medir el % del dia
             prev = {t: (c[t].dropna()[c[t].dropna().index.date < dia].iloc[-1] if t in c and (c[t].dropna().index.date < dia).any() else None) for t in INTRADIA}
             intradia = {"dia": dia.isoformat(), "horas": [x.tz_convert("UTC").isoformat()[:16] if x.tzinfo else x.isoformat()[:16] for x in ci.index],
