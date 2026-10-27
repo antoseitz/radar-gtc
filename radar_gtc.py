@@ -183,14 +183,20 @@ def leer_wls():
 
 TASA = "^TNX"   # rendimiento del bono del Tesoro de EE.UU. a 10 anos (en %)
 
-# Eventos macro dentro del desafio (fuentes: federalreserve.gov y bls.gov)
+# Eventos macro dentro del desafio (hora de Chile). Fuentes: Fed, BEA, BLS, BCE, BoJ, BoE, Banco Central de Chile
 EVENTOS_MACRO = [
-    {"fecha": "2026-10-14", "evento": "IPC (inflación) de septiembre", "tipo": "inflacion"},
-    {"fecha": "2026-10-15", "evento": "Precios al productor (PPI) de septiembre", "tipo": "inflacion"},
-    {"fecha": "2026-10-28", "evento": "Decisión de tasas de la Fed (FOMC)", "tipo": "fed"},
-    {"fecha": "2026-11-06", "evento": "Informe de empleo de octubre", "tipo": "empleo"},
-    {"fecha": "2026-11-10", "evento": "IPC (inflación) de octubre", "tipo": "inflacion"},
-    {"fecha": "2026-11-13", "evento": "Precios al productor (PPI) de octubre", "tipo": "inflacion"},
+    {"fecha": "2026-10-14", "hora": "09:30", "evento": "IPC (inflación) de septiembre", "tipo": "inflacion"},
+    {"fecha": "2026-10-15", "hora": "09:30", "evento": "Precios al productor (PPI) de septiembre", "tipo": "inflacion"},
+    {"fecha": "2026-10-27", "hora": "18:00", "evento": "Banco Central de Chile: decisión de tasas", "tipo": "banco"},
+    {"fecha": "2026-10-28", "hora": "15:00", "evento": "Decisión de tasas de la Fed (FOMC)", "tipo": "fed"},
+    {"fecha": "2026-10-29", "hora": "09:30", "evento": "PIB EE.UU. 3er trimestre + inflación PCE", "tipo": "inflacion"},
+    {"fecha": "2026-10-29", "hora": "10:15", "evento": "Banco Central Europeo: decisión de tasas", "tipo": "banco"},
+    {"fecha": "2026-10-30", "hora": "00:00", "evento": "Banco de Japón: decisión de tasas", "tipo": "banco"},
+    {"fecha": "2026-11-03", "hora": "", "evento": "Elecciones de mitad de período en EE.UU.", "tipo": "politica"},
+    {"fecha": "2026-11-05", "hora": "09:00", "evento": "Banco de Inglaterra: decisión de tasas", "tipo": "banco"},
+    {"fecha": "2026-11-06", "hora": "10:30", "evento": "Informe de empleo de octubre", "tipo": "empleo"},
+    {"fecha": "2026-11-10", "hora": "10:30", "evento": "IPC (inflación) de octubre", "tipo": "inflacion"},
+    {"fecha": "2026-11-13", "hora": "10:30", "evento": "Precios al productor (PPI) de octubre", "tipo": "inflacion"},
 ]
 
 RECOMENDACION = {
