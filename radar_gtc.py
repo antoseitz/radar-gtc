@@ -133,7 +133,8 @@ def leer_pedidas(dias=7):
         f = p[2] if len(p) > 2 else ""
         if f and f[:10] < lim:
             continue
-        out[p[0]] = {"fecha": f[:10], "quien": p[3] if len(p) > 3 else ""}
+        r_ = a_yahoo(p[1]) if len(p) > 1 and " " in p[1] else None
+        out[r_[0] if r_ else p[0]] = {"fecha": f[:10], "quien": p[3] if len(p) > 3 else ""}
     return out
 
 
@@ -999,11 +1000,11 @@ UCOLS = ["t", "bbg", "nombre", "bolsa", "precio", "r1d", "r1s", "r1m", "r3m", "v
          "r1y", "vol90", "beta", "pxusd", "corr", "volprop", "vavg20", "volx", "volx5"]
 
 
-def construir_universo():
+def construir_universo(solo=None):
     U = leer_universo()
     if not U:
         return None
-    ts = list(U)
+    ts = [t for t in U if t in solo] if solo else list(U)
     _OPENS.clear()
     print(f"Universo WLS: descargando {len(ts)} acciones...")
     close, volu = _bajar(ts + ["ACWI"], "1y")
@@ -1280,6 +1281,51 @@ def tendencias(u, previo=None, n=20):
         if not u.get(k) and (previo or {}).get(k):
             u[k] = previo[k]
     print(f"Tendencias: {len(out)} acciones en ola")
+    return u
+
+
+def unir_universo(nuevo, previo):
+    """Si Yahoo no entrego algunas acciones (limite de descargas), se mantienen sus datos anteriores
+    en vez de que desaparezcan de la pagina. Se completan en la proxima descarga."""
+    if not nuevo or not nuevo.get("filas"):
+        return previo
+    if not previo or not previo.get("filas"):
+        return nuevo
+    hay = {f[0] for f in nuevo["filas"]}
+    ix_p = {c: i for i, c in enumerate(previo.get("cols", []))}
+    viejas = []
+    for f in previo["filas"]:
+        if f[0] in hay:
+            continue
+        viejas.append([f[ix_p[c]] if c in ix_p and ix_p[c] < len(f) else None for c in nuevo["cols"]])
+    if viejas:
+        print(f"Universo: {len(viejas)} acciones sin datos nuevos de Yahoo; se mantienen las anteriores")
+    nuevo["filas"] += viejas
+    nuevo["sinActualizar"] = len(viejas)
+    return nuevo
+
+
+def rellenar_universo(u, maximo=700):
+    """Descarga las acciones de universo.txt que faltan en la pagina (por limites de Yahoo), de a 700 por vez."""
+    try:
+        todos = leer_universo() or {}
+        if not u or not u.get("filas") or not todos:
+            return u
+        hay = {f[0] for f in u["filas"]}
+        pedidas = leer_pedidas()
+        faltan = sorted([t for t in todos if t not in hay], key=lambda t: t not in pedidas)   # primero las pedidas
+        if len(faltan) < 20 or _edad_min(u.get("relleno") or "") < 50:
+            return u
+        print(f"Universo: faltan {len(faltan)} acciones; se descargan {min(len(faltan), maximo)}")
+        time.sleep(20)
+        parte = construir_universo(solo=set(faltan[:maximo]))
+        if parte and parte.get("filas"):
+            ix_p = {c: i for i, c in enumerate(parte["cols"])}
+            u["filas"] += [[f[ix_p[c]] if c in ix_p else None for c in u["cols"]] for f in parte["filas"]]
+            print(f"Universo: +{len(parte['filas'])} acciones (total {len(u['filas'])} de {len(todos)})")
+        u["relleno"] = datetime.now(timezone.utc).isoformat(timespec="minutes")
+    except Exception as e:
+        print(f"Relleno del universo fallo ({e.__class__.__name__}: {e})")
     return u
 
 
@@ -1948,12 +1994,13 @@ def auto():
         try:
             if manual or _edad_min((uni_prev or {}).get("completo") or "") >= 360:
                 time.sleep(30)
-                uni = construir_universo() or uni_prev
+                uni = unir_universo(construir_universo(), uni_prev) or uni_prev
             elif habil:
                 uni = rapido_universo(uni_prev)
             uni = tendencias(uni, uni_prev)
         except Exception as e:
             print(f"Universo WLS fallo ({e.__class__.__name__}: {e}); se mantiene el anterior")
+        uni = rellenar_universo(uni)
     elif habil or edad_act >= 55 or edad_not >= 55:
         noticias = (not habil) and edad_not >= 55
         print(f"== Actualizacion RAPIDA (precios{' + noticias' if noticias else ''}) ==")
