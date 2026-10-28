@@ -119,6 +119,24 @@ def leer_equipo():
         out[t] = partes[1] if len(partes) > 1 and partes[1] else "Agregada por el equipo"
     return out
 
+def leer_pedidas(dias=7):
+    """pedidas.txt (lo escribe la Mesa con el boton 'Pedir analisis a fondo'): 'simbolo Yahoo | ticker BBG | fecha | quien'.
+    Se analizan a fondo durante 7 dias desde que se pidieron."""
+    out = {}
+    if not os.path.exists("pedidas.txt"):
+        return out
+    lim = (datetime.now(timezone.utc) - timedelta(days=dias)).date().isoformat()
+    for linea in open("pedidas.txt", encoding="utf-8"):
+        p = [x.strip() for x in linea.split("#")[0].split("|")]
+        if not p or not p[0]:
+            continue
+        f = p[2] if len(p) > 2 else ""
+        if f and f[:10] < lim:
+            continue
+        out[p[0]] = {"fecha": f[:10], "quien": p[3] if len(p) > 3 else ""}
+    return out
+
+
 # Bolsa Bloomberg -> (sufijo Yahoo, moneda, divisor). Divisor 100 = la bolsa cotiza en centavos (peniques, etc.)
 BBG2YF = {
     "US": ("", "USD", 1), "UN": ("", "USD", 1), "UW": ("", "USD", 1), "UQ": ("", "USD", 1), "UA": ("", "USD", 1),
@@ -1354,7 +1372,7 @@ def sensibilidades(close, ts):
     return out
 
 
-def construir_candidatas(uni, previo=None, maximo=90):
+def construir_candidatas(uni, previo=None, maximo=120):
     """Elige ~90 acciones para analizar a fondo: olas de hoy y de la semana, las mejores por factores de precio
     y la cartera actual. Para cada una trae analistas, resultados, noticias, grafico de 6 meses y relacionadas."""
     import yfinance as yf
@@ -1382,7 +1400,21 @@ def construir_candidatas(uni, previo=None, maximo=90):
             origen.setdefault(ok[k][0], set()).add("factores")
     for t in leer_equipo():
         origen.setdefault(t, set()).add("cartera")
-    ts = [t for t in origen if t in filas][:maximo]
+    pedidas = leer_pedidas()
+    for t in pedidas:
+        origen.setdefault(t, set()).add("pedida")
+    # memoria: las que estuvieron en ola en los ultimos 7 dias siguen analizandose (para poder seguirlas despues de comprar)
+    hoy_iso = datetime.now(timezone.utc).date().isoformat()
+    lim = (datetime.now(timezone.utc) - timedelta(days=7)).date().isoformat()
+    memoria = {t: f for t, f in ((previo or {}).get("memoria") or {}).items() if f >= lim}
+    for t, o_ in origen.items():
+        if o_ & {"ola-hoy", "ola-semana"}:
+            memoria[t] = hoy_iso
+    for t, f in memoria.items():
+        if t not in origen or not (origen[t] & {"ola-hoy", "ola-semana"}):
+            origen.setdefault(t, set()).add("reciente")
+    prio = lambda t: (0 if origen[t] & {"cartera", "pedida"} else 1 if origen[t] & {"ola-hoy", "ola-semana"} else 2 if "reciente" in origen[t] else 3)
+    ts = sorted([t for t in origen if t in filas], key=prio)[:maximo]
     viejos = {d["t"]: d for d in (previo or {}).get("items", [])}
     noticias_ola = {d["t"]: d for d in uni.get("tendencia", []) + uni.get("tendenciaSemana", [])}
     print(f"Candidatas: {len(ts)} acciones")
@@ -1454,8 +1486,12 @@ def construir_candidatas(uni, previo=None, maximo=90):
         if t in corr:
             c = corr[t].drop(labels=[t], errors="ignore").dropna().sort_values(ascending=False)
             it["rel"] = [[k, r(float(val), 2)] for k, val in c.head(3).items() if val >= 0.4]
+        if "reciente" in origen[t]:
+            it["olaFecha"] = memoria.get(t)
+        if t in pedidas:
+            it["pedida"] = pedidas[t]
         items.append(it)
-    return {"generado": datetime.now(timezone.utc).isoformat(timespec="minutes"), "items": items}
+    return {"generado": datetime.now(timezone.utc).isoformat(timespec="minutes"), "items": items, "memoria": memoria}
 
 
 
