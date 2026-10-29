@@ -1786,7 +1786,7 @@ def _acciones_tendencia(yf, uni, previo):
     return out, notTk
 
 
-def _resultados_grandes(yf, uni, previo, maximo_nuevas=30):
+def _resultados_grandes(yf, uni, previo, maximo_nuevas=10):
     """Fechas de resultados de las empresas mas grandes y transadas del WLS (y lideres que mueven al mercado)."""
     filas = (uni or {}).get("filas", [])
     ix = {c_: i for i, c_ in enumerate((uni or {}).get("cols", []))}
@@ -2019,6 +2019,9 @@ def auto():
     """Decide que hacer en cada ejecucion de GitHub (cada 15 min)."""
     sitio = os.environ.get("SITIO", "").rstrip("/") + "/"
     manual = os.environ.get("MANUAL") == "true"
+    # MODO=rapido: precios, noticias y panorama (cada 15 min, termina en pocos minutos)
+    # MODO=completo: analisis completo, universo y candidatas (cada hora, puede tardar)
+    modo_run = os.environ.get("MODO", "")
     ahora = datetime.now(timezone.utc)
     habil = ahora.weekday() < 5 or (ahora.weekday() == 6 and ahora.hour >= 22)  # lunes a viernes (+ domingo noche: abre Asia)
     previos = {k: _bajar_json(sitio + os.path.basename(v)) for k, v in ARCHIVOS.items()}
@@ -2031,7 +2034,10 @@ def auto():
     edad_not = _edad_min((gen or {}).get("noticiasHora") or (gen or {}).get("completo") or "") if gen else 1e9
     publicar = True
     uni = uni_prev
-    if manual or gen is None or (habil and edad_full >= 55):
+    if modo_run == "completo" and not manual and gen is not None and not (habil and edad_full >= 40):
+        print("Modo completo: todavia no corresponde (lo hace la proxima hora)")
+        publicar = False
+    elif modo_run != "rapido" and (manual or gen is None or (habil and edad_full >= 55)):
         print("== Actualizacion COMPLETA ==")
         for modo, out in ARCHIVOS.items():
             try:
@@ -2090,14 +2096,14 @@ def auto():
     else:
         print("Fin de semana: no hay nada nuevo que publicar todavia")
         publicar = False
-    if publicar and uni and (habil or manual or not cand_prev) and _edad_min((cand_prev or {}).get("generado") or "") >= 55:
+    if modo_run != "rapido" and publicar and uni and (habil or manual or not cand_prev) and (manual or _edad_min((cand_prev or {}).get("generado") or "") >= 40):
         try:
             cand = construir_candidatas(uni, cand_prev) or cand_prev
         except Exception as e:
             print(f"Candidatas fallo ({e.__class__.__name__}: {e}); se mantienen las anteriores")
-    pan_prev = _bajar_json(sitio + "mercado.json")
+    pan_prev = _bajar_json(sitio + "mercado.json")   # se baja al final: el modo completo republica el mas nuevo
     pan = pan_prev
-    if publicar and _edad_min((pan_prev or {}).get("generado") or "") >= 12:
+    if modo_run != "completo" and publicar and _edad_min((pan_prev or {}).get("generado") or "") >= 10:
         try:
             pan = construir_panorama(uni, pan_prev) or pan_prev
         except Exception as e:
