@@ -86,7 +86,7 @@ jobs:
           [ -z "$inicio" ] && inicio=$(date +%s)
           espera=$(( inicio + 15*60 - $(date +%s) ))
           if [ "$espera" -gt 0 ]; then echo "Esperando $espera s"; sleep "$espera"; fi
-          wf=$(basename "${{ github.workflow_ref }}" | cut -d@ -f1)
+          wf=rapido.yml
           otras=$(gh run list --workflow "$wf" -L 20 --json databaseId,status \
             --jq '[.[] | select(.databaseId != ${{ github.run_id }}) | select(.status=="queued" or .status=="in_progress" or .status=="waiting" or .status=="pending" or .status=="requested")] | length' 2>/dev/null || echo 0)
           if [ "$otras" != "0" ]; then echo "Ya hay otra ejecucion en cola o corriendo ($otras): no lanzo otra"; exit 0; fi
