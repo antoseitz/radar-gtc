@@ -1958,6 +1958,17 @@ def _bajar_json(url, intentos=3):
 
 
 GUARDADOS = set()
+ERRORES = []
+
+
+def anotar_error(donde, e):
+    """Guarda el error (con la linea donde ocurrio) para mostrarlo en la Mesa (estado.json)."""
+    import traceback
+    tb = traceback.extract_tb(e.__traceback__)[-3:] if e.__traceback__ else []
+    lineas = " <- ".join(f"{fr.name}:{fr.lineno}" for fr in reversed(tb))
+    ERRORES.append({"donde": donde, "error": f"{e.__class__.__name__}: {e}"[:300], "linea": lineas,
+                    "hora": datetime.now(timezone.utc).isoformat(timespec="minutes")})
+    print(f"{donde} fallo ({e.__class__.__name__}: {e}) [{lineas}]")
 
 
 def _guardar(datos, out):
@@ -2129,7 +2140,7 @@ def auto():
                 _guardar(d, out)
                 print(f"Listo {out}")
             except (SystemExit, Exception) as e:
-                print(f"{modo}: {e.__class__.__name__}: {e}")
+                anotar_error(f"radar {modo}", e)
                 if previos.get(modo):
                     _guardar(previos[modo], out)
                 elif modo == "general":
@@ -2143,7 +2154,7 @@ def auto():
                 uni = rapido_universo(uni_prev)
             uni = tendencias(uni, uni_prev)
         except Exception as e:
-            print(f"Universo WLS fallo ({e.__class__.__name__}: {e}); se mantiene el anterior")
+            anotar_error("universo WLS", e)
         uni = rellenar_universo(uni)
     elif habil or edad_act >= 55 or edad_not >= 55:
         noticias = (not habil) and edad_not >= 55
@@ -2165,24 +2176,35 @@ def auto():
     else:
         print("Fin de semana: no hay nada nuevo que publicar todavia")
         publicar = False
+    if modo_run != "rapido" and publicar and not uni:
+        ERRORES.append({"donde": "candidatas (recomendaciones)", "error": "no se armaron porque falta el universo WLS (universo.json)", "linea": "",
+                        "hora": datetime.now(timezone.utc).isoformat(timespec="minutes")})
     if modo_run != "rapido" and publicar and uni and (habil or manual or not cand_prev) and (manual or _edad_min((cand_prev or {}).get("generado") or "") >= 40):
         try:
             cand = construir_candidatas(uni, cand_prev) or cand_prev
         except Exception as e:
-            print(f"Candidatas fallo ({e.__class__.__name__}: {e}); se mantienen las anteriores")
+            anotar_error("candidatas (recomendaciones)", e)
     pan_prev = _bajar_json(sitio + "mercado.json")   # se baja al final: el modo completo republica el mas nuevo
     pan = pan_prev
     if modo_run != "completo" and publicar and _edad_min((pan_prev or {}).get("generado") or "") >= 10:
         try:
             pan = construir_panorama(uni, pan_prev) or pan_prev
         except Exception as e:
-            print(f"Panorama fallo ({e.__class__.__name__}: {e}); se mantiene el anterior")
+            anotar_error("panorama del mercado", e)
     if publicar and pan:
         _guardar(pan, "docs/mercado.json")
     if publicar and uni:
         _guardar(uni, "docs/universo.json")
     if publicar and cand:
         _guardar(cand, "docs/candidatos.json")
+    if publicar:
+        est_prev = _bajar_json(sitio + "estado.json", 1) or {}
+        hist = [x for x in (est_prev.get("historial") or []) if _edad_min(x.get("hora") or "") < 1440][-30:]
+        hist.append({"hora": datetime.now(timezone.utc).isoformat(timespec="minutes"), "modo": modo_run or "auto",
+                     "errores": len(ERRORES), "archivos": sorted(os.path.basename(x) for x in GUARDADOS)})
+        _guardar({"generado": datetime.now(timezone.utc).isoformat(timespec="minutes"), "modo": modo_run or "auto",
+                  "errores": ERRORES, "historial": hist,
+                  "erroresAntes": [x for x in (est_prev.get("errores") or [])][-10:]}, "docs/estado.json")
     # seguridad: nunca publicar un sitio al que le falte un archivo (borraria los datos de la pagina)
     if publicar:
         for f in ("radar_gtc.json", "universo.json", "candidatos.json", "mercado.json"):
