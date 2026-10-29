@@ -1418,7 +1418,49 @@ def sensibilidades(close, ts):
     return out
 
 
-def construir_candidatas(uni, previo=None, maximo=120):
+def pre_olas(uni, n=25):
+    """Acciones que todavia NO subieron fuerte pero muestran senales que suelen venir antes de una ola:
+    cerca de su maximo de 52 semanas, volumen creciendo, tendencia de fondo positiva y volatilidad 'apretada'."""
+    ix = {c: i for i, c in enumerate(uni["cols"])}
+    g = lambda f, c: f[ix[c]] if c in ix and ix[c] < len(f) else None
+    out = []
+    for f in uni["filas"]:
+        liq, px = g(f, "liq") or 0, g(f, "pxusd") or 0
+        r1d, r1s, r1m, r3m = g(f, "r1d"), g(f, "r1s"), g(f, "r1m"), g(f, "r3m")
+        if liq < 2 or px < 5 or r1d is None or r1s is None:
+            continue
+        if r1d >= 3 or r1s >= 8:          # ya esta en ola: eso lo cubren las otras listas
+            continue
+        pts, sen = 0.0, []
+        d52, vx, vx5, rs, v20, v90 = g(f, "dist52"), g(f, "volx"), g(f, "volx5"), g(f, "rsi"), g(f, "vol20"), g(f, "vol90")
+        if d52 is not None and d52 >= -8:
+            pts += 1 + (0.5 if d52 >= -3 else 0)
+            sen.append(f"a {abs(d52):.0f}% de su máximo de 52 semanas" if d52 < -0.5 else "en su máximo de 52 semanas")
+        if vx5 is not None and vx5 >= 1.3:
+            pts += 1
+            sen.append(f"volumen de la semana {vx5:.1f}× lo normal sin haber subido fuerte (alguien está comprando)")
+        if vx is not None and vx >= 1.5 and 0 < r1d < 3:
+            pts += 1
+            sen.append(f"hoy {vx:.1f}× su volumen con alza moderada ({r1d:+.1f}%)")
+        if (r1m or 0) > 0 and (r3m or 0) > 0:
+            pts += 1
+            sen.append(f"tendencia de fondo positiva (mes {r1m:+.0f}%, 3 meses {r3m:+.0f}%)")
+        if rs is not None:
+            if 50 <= rs <= 68:
+                pts += 0.5
+                sen.append(f"RSI {rs:.0f}: con fuerza pero sin estar sobrecomprada")
+            elif rs >= 75:
+                pts -= 1
+        if v20 and v90 and v20 < 0.75 * v90:
+            pts += 0.5
+            sen.append("se está moviendo menos que de costumbre (suele venir antes de un salto)")
+        if pts >= 3:
+            out.append((pts, f[0], sen))
+    out.sort(key=lambda x: -x[0])
+    return {t: {"pts": round(p_, 1), "senales": sen} for p_, t, sen in out[:n]}
+
+
+def construir_candidatas(uni, previo=None, maximo=140):
     """Elige ~90 acciones para analizar a fondo: olas de hoy y de la semana, las mejores por factores de precio
     y la cartera actual. Para cada una trae analistas, resultados, noticias, grafico de 6 meses y relacionadas."""
     import yfinance as yf
@@ -1444,6 +1486,13 @@ def construir_candidatas(uni, previo=None, maximo=120):
                + 0.15 * z([g(f, "beta") for f in ok]))
         for k in np.argsort(-pre)[:40]:
             origen.setdefault(ok[k][0], set()).add("factores")
+    try:
+        pre = pre_olas(uni)
+    except Exception as e:
+        print(f"  pre-olas fallo ({e})")
+        pre = {}
+    for t in pre:
+        origen.setdefault(t, set()).add("pre-ola")
     for t in leer_equipo():
         origen.setdefault(t, set()).add("cartera")
     pedidas = leer_pedidas()
@@ -1459,7 +1508,7 @@ def construir_candidatas(uni, previo=None, maximo=120):
     for t, f in memoria.items():
         if t not in origen or not (origen[t] & {"ola-hoy", "ola-semana"}):
             origen.setdefault(t, set()).add("reciente")
-    prio = lambda t: (0 if origen[t] & {"cartera", "pedida"} else 1 if origen[t] & {"ola-hoy", "ola-semana"} else 2 if "reciente" in origen[t] else 3)
+    prio = lambda t: (0 if origen[t] & {"cartera", "pedida"} else 1 if origen[t] & {"ola-hoy", "ola-semana"} else 2 if origen[t] & {"pre-ola", "reciente"} else 3)
     ts = sorted([t for t in origen if t in filas], key=prio)[:maximo]
     viejos = {d["t"]: d for d in (previo or {}).get("items", [])}
     noticias_ola = {d["t"]: d for d in uni.get("tendencia", []) + uni.get("tendenciaSemana", [])}
@@ -1536,8 +1585,28 @@ def construir_candidatas(uni, previo=None, maximo=120):
             it["olaFecha"] = memoria.get(t)
         if t in pedidas:
             it["pedida"] = pedidas[t]
+        if t in pre:
+            it["preola"] = pre[t]
         items.append(it)
-    return {"generado": datetime.now(timezone.utc).isoformat(timespec="minutes"), "items": items, "memoria": memoria}
+    lim_h = (datetime.now(timezone.utc) - timedelta(days=21)).date().isoformat()
+    hist = {t: h for t, h in ((previo or {}).get("historial") or {}).items() if (h.get("f") or "") >= lim_h}
+    ahora_iso = datetime.now(timezone.utc).isoformat(timespec="minutes")
+    for t in ts:
+        tipos = origen[t] & {"pre-ola", "ola-hoy", "ola-semana"}
+        if not tipos:
+            continue
+        tipo = "pre-ola" if "pre-ola" in tipos else "ola"
+        h = hist.get(t)
+        if not h or (h.get("tipo") != tipo and tipo == "ola" and h.get("tipo") == "pre-ola" and not h.get("fOla")):
+            px_ = g(filas[t], "precio")
+            if not h:
+                hist[t] = {"f": ahora_iso, "px": px_, "tipo": tipo}
+            else:
+                h["fOla"], h["pxOla"] = ahora_iso, px_     # la pre-ola se convirtio en ola: se anota
+    for t, h in hist.items():
+        if t in filas:
+            h["pxHoy"] = g(filas[t], "precio")
+    return {"generado": ahora_iso, "items": items, "memoria": memoria, "historial": hist}
 
 
 
