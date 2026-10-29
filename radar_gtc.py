@@ -1943,18 +1943,25 @@ TEMAS_MERCADO = {"EE.UU.": "Wall Street stock futures", "Corea": "KOSPI Korea st
 ARCHIVOS = {"general": "docs/radar_gtc.json", "wls": "docs/radar_wls.json"}
 
 
-def _bajar_json(url):
+def _bajar_json(url, intentos=3):
     import urllib.request
-    try:
-        req = urllib.request.Request(url + f"?t={int(time.time())}", headers={"User-Agent": "radar-gtc", "Cache-Control": "no-cache"})
-        with urllib.request.urlopen(req, timeout=30) as r_:
-            return json.loads(r_.read().decode("utf-8").replace("NaN", "null"))
-    except Exception as e:
-        print(f"  No pude leer {url}: {e}")
-        return None
+    for k in range(intentos):
+        try:
+            req = urllib.request.Request(url + f"?t={int(time.time())}", headers={"User-Agent": "radar-gtc", "Cache-Control": "no-cache"})
+            with urllib.request.urlopen(req, timeout=30) as r_:
+                return json.loads(r_.read().decode("utf-8").replace("NaN", "null"))
+        except Exception as e:
+            print(f"  No pude leer {url} (intento {k + 1}): {e}")
+            if k < intentos - 1:
+                time.sleep(8)
+    return None
+
+
+GUARDADOS = set()
 
 
 def _guardar(datos, out):
+    GUARDADOS.add(out)
     texto = json.dumps(datos, ensure_ascii=False, separators=(",", ":"), default=str)
     texto = texto.replace(":NaN", ":null").replace(":-Infinity", ":null").replace(":Infinity", ":null")
     texto = texto.replace(",NaN", ",null").replace("[NaN", "[null")
@@ -2176,6 +2183,19 @@ def auto():
         _guardar(uni, "docs/universo.json")
     if publicar and cand:
         _guardar(cand, "docs/candidatos.json")
+    # seguridad: nunca publicar un sitio al que le falte un archivo (borraria los datos de la pagina)
+    if publicar:
+        for f in ("radar_gtc.json", "universo.json", "candidatos.json", "mercado.json"):
+            ruta = "docs/" + f
+            if ruta in GUARDADOS:      # escrito en esta ejecucion (no el viejo del repositorio)
+                continue
+            d = _bajar_json(sitio + f)
+            if d:
+                _guardar(d, ruta)
+                print(f"  {f}: se republica el que estaba en el sitio")
+            elif f == "radar_gtc.json" or modo_run == "rapido":
+                print(f"  FALTA {f} y no se pudo recuperar: NO se publica para no borrar datos")
+                publicar = False
     salida = os.environ.get("GITHUB_OUTPUT")
     if salida:
         with open(salida, "a") as f:
