@@ -12,6 +12,7 @@ permissions:
   contents: read
   pages: write
   id-token: write
+  actions: write
 
 concurrency:
   group: completo
@@ -23,7 +24,10 @@ jobs:
     timeout-minutes: 120
     outputs:
       publicar: ${{ steps.datos.outputs.publicar }}
+      inicio: ${{ steps.inicio.outputs.t }}
     steps:
+      - id: inicio
+        run: echo "t=$(date +%s)" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
@@ -61,3 +65,31 @@ jobs:
       - name: Publicar pagina
         id: deployment
         uses: actions/deploy-pages@v4
+
+  # GitHub a veces no lanza las ejecuciones programadas (cron). Por eso cada ejecucion deja programada la siguiente:
+  # espera a que se cumplan 60 min desde que partio y la lanza, salvo que ya haya otra en cola o corriendo.
+  siguiente:
+    needs: [datos, publicar]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 70
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Esperar y lanzar la siguiente
+        run: |
+          dow=$(date -u +%u); hora=$(date -u +%H)
+          if [ "$dow" = "6" ] || { [ "$dow" = "7" ] && [ "$hora" -lt 22 ]; }; then
+            echo "Fin de semana: la siguiente la lanza el horario programado"; exit 0
+          fi
+          inicio=${{ needs.datos.outputs.inicio }}
+          [ -z "$inicio" ] && inicio=$(date +%s)
+          espera=$(( inicio + 60*60 - $(date +%s) ))
+          if [ "$espera" -gt 0 ]; then echo "Esperando $espera s"; sleep "$espera"; fi
+          wf=$(basename "${{ github.workflow_ref }}" | cut -d@ -f1)
+          otras=$(gh run list --workflow "$wf" -L 20 --json databaseId,status \
+            --jq '[.[] | select(.databaseId != ${{ github.run_id }}) | select(.status=="queued" or .status=="in_progress" or .status=="waiting" or .status=="pending" or .status=="requested")] | length' 2>/dev/null || echo 0)
+          if [ "$otras" != "0" ]; then echo "Ya hay otra ejecucion en cola o corriendo ($otras): no lanzo otra"; exit 0; fi
+          gh workflow run "$wf" --ref "${{ github.ref_name }}"
+          echo "Siguiente ejecucion lanzada"
