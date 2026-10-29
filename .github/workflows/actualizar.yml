@@ -1,12 +1,11 @@
-name: Actualizar Radar GTC
+name: Actualizar Radar GTC (completo, cada hora)
 
-# Corre cada 15 minutos, todos los dias. El programa decide solo que hacer:
-#  - Dias habiles: calculo completo cada hora y, entre medio, solo precios (1-3 min).
-#  - Fin de semana: noticias, futuros y bitcoin cada hora (las bolsas estan cerradas).
-#  - Boton "Run workflow": siempre hace el calculo completo.
+# Analisis completo: radar, universo WLS, candidatas de la Mesa. Puede tardar 20-60 min.
+# Los precios cada 15 min los hace el otro flujo (rapido.yml), que no espera a este.
+# Boton "Run workflow": hace el analisis completo de inmediato.
 on:
   schedule:
-    - cron: "*/15 * * * *"
+    - cron: "3 * * * *"
   workflow_dispatch:
 
 permissions:
@@ -15,16 +14,15 @@ permissions:
   id-token: write
 
 concurrency:
-  group: pages
+  group: completo
   cancel-in-progress: false
 
 jobs:
-  actualizar:
+  datos:
     runs-on: ubuntu-latest
-    timeout-minutes: 150
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+    timeout-minutes: 120
+    outputs:
+      publicar: ${{ steps.datos.outputs.publicar }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -33,22 +31,33 @@ jobs:
           cache: pip
       - name: Instalar librerias
         run: pip install -r requirements.txt
-      - name: Descargar datos (completo o rapido)
+      - name: Analisis completo
         id: datos
         env:
           RADAR_KRONOS: "0"
+          MODO: completo
           SITIO: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/
           MANUAL: ${{ github.event_name == 'workflow_dispatch' }}
         run: |
           python radar_gtc.py --auto
           cp docs/index.html docs/wls.html
-      - uses: actions/configure-pages@v5
-        if: steps.datos.outputs.publicar == 'si'
       - uses: actions/upload-pages-artifact@v3
         if: steps.datos.outputs.publicar == 'si'
         with:
           path: docs
+
+  publicar:
+    needs: datos
+    if: needs.datos.outputs.publicar == 'si'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/configure-pages@v5
       - name: Publicar pagina
         id: deployment
-        if: steps.datos.outputs.publicar == 'si'
         uses: actions/deploy-pages@v4
