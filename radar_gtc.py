@@ -1820,6 +1820,62 @@ def _resultados_grandes(yf, uni, previo, maximo_nuevas=10):
     return out
 
 
+def leer_cartera_txt():
+    """cartera.txt (lo escribe la Mesa al guardar posiciones) + equipo.txt: simbolos Yahoo de lo que tienen comprado."""
+    out = {}
+    if os.path.exists("cartera.txt"):
+        for linea in open("cartera.txt", encoding="utf-8"):
+            linea = linea.split("#")[0].strip()
+            r_ = a_yahoo(linea.split("|")[0].strip()) if linea else None
+            if r_:
+                out[r_[0]] = r_[1]
+    if not out:
+        for t in leer_equipo():
+            out[t] = EQUIPO_BBG.get(t, t)
+    return out
+
+
+def intradia_cartera():
+    """Precio cada 5 min de la ultima sesion de cada accion de la cartera (Corea, Taiwan, EE.UU., etc.)."""
+    import yfinance as yf
+    cart = leer_cartera_txt()
+    if not cart:
+        return {}
+    ts = list(cart)
+    df = yf.download(ts, period="5d", interval="5m", progress=False, auto_adjust=True, group_by="column", threads=True)
+    if df is None or df.empty:
+        return {}
+    cl = df["Close"] if isinstance(df.columns, pd.MultiIndex) else df[["Close"]].rename(columns={"Close": ts[0]})
+    out = {}
+    for t in ts:
+        if t not in cl:
+            continue
+        s_ = cl[t].dropna()
+        if s_.empty:
+            continue
+        loc = s_.index.tz_convert(_tz_bolsa(t)) if s_.index.tz is not None else s_.index
+        dias = sorted(set(loc.date))
+        dia = dias[-1]
+        hoy = s_[[d == dia for d in loc.date]]
+        antes = s_[[d < dia for d in loc.date]]
+        out[t] = {"bbg": cart[t], "dia": dia.isoformat(),
+                  "h": [x.tz_convert("UTC").isoformat()[:16] if x.tzinfo else x.isoformat()[:16] for x in hoy.index],
+                  "v": [r(float(x), 4) for x in hoy.values],
+                  "prev": r(float(antes.iloc[-1]), 4) if len(antes) else None}
+    return out
+
+
+def _tz_bolsa(t):
+    for suf, tz in ((".KS", "Asia/Seoul"), (".KQ", "Asia/Seoul"), (".T", "Asia/Tokyo"), (".TW", "Asia/Taipei"), (".TWO", "Asia/Taipei"),
+                    (".HK", "Asia/Hong_Kong"), (".SS", "Asia/Shanghai"), (".SZ", "Asia/Shanghai"), (".NS", "Asia/Kolkata"), (".BO", "Asia/Kolkata"),
+                    (".L", "Europe/London"), (".DE", "Europe/Berlin"), (".PA", "Europe/Paris"), (".AS", "Europe/Amsterdam"), (".SW", "Europe/Zurich"),
+                    (".ST", "Europe/Stockholm"), (".VI", "Europe/Vienna"), (".BR", "Europe/Brussels"), (".JO", "Africa/Johannesburg"),
+                    (".SA", "America/Sao_Paulo"), (".MX", "America/Mexico_City"), (".SN", "America/Santiago"), (".TO", "America/Toronto"), (".AX", "Australia/Sydney")):
+        if t.endswith(suf):
+            return tz
+    return "America/New_York"
+
+
 def construir_panorama(uni=None, previo=None):
     """mercado.json: indices, VIX, dolar y monedas, sectores, gigantes, intradia de hoy, noticias y acciones en tendencia."""
     import yfinance as yf
@@ -1866,10 +1922,16 @@ def construir_panorama(uni=None, previo=None):
     except Exception as e:
         print(f"  resultados de grandes fallo ({e.__class__.__name__})")
         grandes = p.get("grandes", [])
-    print(f"Panorama: {len(series)} series, {len(noticias)} noticias, {sum(len(v) for v in tend.values())} en tendencia, {len(grandes)} grandes")
+    try:
+        cartera = intradia_cartera()
+    except Exception as e:
+        print(f"  intradia de la cartera fallo ({e.__class__.__name__}: {e})")
+        cartera = {}
+    print(f"Panorama: {len(cartera)} de la cartera, {len(series)} series, {len(noticias)} noticias, {sum(len(v) for v in tend.values())} en tendencia, {len(grandes)} grandes")
     return {"generado": datetime.now(timezone.utc).isoformat(timespec="minutes"), "series": series, "hist": hist,
             "intradia": intradia or p.get("intradia"), "noticias": noticias, "notHora": not_hora,
-            "tendencia": tend, "notTk": notTk, "tendHora": tend_hora, "grandes": grandes, "macro": EVENTOS_MACRO}
+            "tendencia": tend, "notTk": notTk, "tendHora": tend_hora, "grandes": grandes, "macro": EVENTOS_MACRO,
+            "cartera": cartera or p.get("cartera") or {}}
 
 
 # ---------------- MODO AUTOMATICO (GitHub cada 15 minutos) ----------------
