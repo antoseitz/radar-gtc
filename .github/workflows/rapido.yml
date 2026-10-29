@@ -1,6 +1,7 @@
 name: Precios cada 15 min (rapido)
 
 # Precios, noticias, VIX/dolar y acciones en tendencia. Termina en pocos minutos y no espera al analisis completo.
+# Al final deja lanzada la siguiente (15 min) y, si paso ~1 hora, tambien el analisis completo.
 
 on:
   schedule:
@@ -71,7 +72,7 @@ jobs:
     needs: [datos, publicar]
     if: always()
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 75
     env:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
@@ -79,12 +80,13 @@ jobs:
       - name: Esperar y lanzar la siguiente
         run: |
           dow=$(date -u +%u); hora=$(date -u +%H)
+          minutos=15
           if [ "$dow" = "6" ] || { [ "$dow" = "7" ] && [ "$hora" -lt 22 ]; }; then
-            echo "Fin de semana: la siguiente la lanza el horario programado"; exit 0
+            minutos=60; echo "Fin de semana: la cadena sigue, pero cada 60 min"
           fi
           inicio=${{ needs.datos.outputs.inicio }}
           [ -z "$inicio" ] && inicio=$(date +%s)
-          espera=$(( inicio + 15*60 - $(date +%s) ))
+          espera=$(( inicio + minutos*60 - $(date +%s) ))
           if [ "$espera" -gt 0 ]; then echo "Esperando $espera s"; sleep "$espera"; fi
           wf=rapido.yml
           otras=$(gh run list --workflow "$wf" -L 20 --json databaseId,status \
@@ -92,3 +94,16 @@ jobs:
           if [ "$otras" != "0" ]; then echo "Ya hay otra ejecucion en cola o corriendo ($otras): no lanzo otra"; exit 0; fi
           gh workflow run "$wf" --ref "${{ github.ref_name }}"
           echo "Siguiente ejecucion lanzada"
+      - name: Lanzar el analisis completo si ya corresponde (cada ~60 min)
+        if: always()
+        run: |
+          dow=$(date -u +%u); hora=$(date -u +%H)
+          if [ "$dow" = "6" ] || { [ "$dow" = "7" ] && [ "$hora" -lt 22 ]; }; then echo "Fin de semana: el completo lo lanza el horario"; exit 0; fi
+          activos=$(gh run list --workflow actualizar.yml -L 10 --json status \
+            --jq '[.[] | select(.status=="queued" or .status=="in_progress" or .status=="waiting" or .status=="pending" or .status=="requested")] | length' 2>/dev/null || echo 1)
+          if [ "$activos" != "0" ]; then echo "El completo ya esta corriendo o en cola"; exit 0; fi
+          ultimo=$(gh run list --workflow actualizar.yml -L 1 --json createdAt --jq '.[0].createdAt // ""' 2>/dev/null || echo "")
+          edad=999
+          if [ -n "$ultimo" ]; then edad=$(( ( $(date +%s) - $(date -d "$ultimo" +%s) ) / 60 )); fi
+          echo "Ultimo completo hace $edad min"
+          if [ "$edad" -ge 55 ]; then gh workflow run actualizar.yml --ref "${{ github.ref_name }}"; echo "Completo lanzado"; fi
