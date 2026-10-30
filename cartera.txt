@@ -1,7 +1,3 @@
 # Lo que tiene comprado el equipo (lo escribe la Mesa al guardar posiciones). Solo tickers: sirve para seguir sus precios cada 15 min.
+6857 JT
 028050 KS
-MU US
-VIAV US
-BE US
-000660 KS
-2330 TT
