@@ -3,3 +3,4 @@
 TEVA.TA | TEVA IT | 2026-10-29 | Anto
 DLR | DLR US | 2026-10-30 | Anto
 LTM.SN | LTM CI | 2026-10-30 | Anto
+OKLO | OKLO US | 2026-10-30 | Anto
