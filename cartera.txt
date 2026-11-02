@@ -1,10 +1,10 @@
 # Lo que tiene comprado el equipo (lo escribe la Mesa al guardar posiciones). Solo tickers: sirve para seguir sus precios cada 15 min.
-6857 JT
-MU US
-VIAV US
 000660 KS
-2330 TT
-2914 JT
-SNDK US
-INSH US
 294870 KP
+SNDK US
+6857 JT
+INSM US
+2914 JT
+MU US
+2330 TT
+VIAV US
