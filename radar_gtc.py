@@ -997,7 +997,7 @@ def _bajar(tickers, periodo, lote=200, hilos=8, reintentar=True):
 
 
 UCOLS = ["t", "bbg", "nombre", "bolsa", "precio", "r1d", "r1s", "r1m", "r3m", "vol20", "liq", "rsi", "dist52", "momentum", "fecha",
-         "r1y", "vol90", "beta", "pxusd", "corr", "volprop", "vavg20", "volx", "volx5"]
+         "r1y", "vol90", "beta", "pxusd", "corr", "volprop", "vavg20", "volx", "volx5", "relS", "relM"]
 
 
 def construir_universo(solo=None):
@@ -1025,6 +1025,13 @@ def construir_universo(solo=None):
     monedas = sorted({SUF2MON[s_][0] for t in ts for s_ in SUF2MON if t.endswith(s_)})
     fxc, _ = _bajar([f"{m}=X" for m in monedas], "5d")
     fx = {m: float(fxc[f"{m}=X"].dropna().iloc[-1]) for m in monedas if f"{m}=X" in fxc and fxc[f"{m}=X"].notna().any()}
+    acwi_s = close["ACWI"].dropna() if "ACWI" in close else None
+
+    def acwi_var(n):   # retorno del WLS (aprox. con ACWI) en la misma ventana, para medir fuerza relativa
+        if acwi_s is None or len(acwi_s) <= n:
+            return None
+        return float(acwi_s.iloc[-1] / acwi_s.iloc[-1 - n] - 1) * 100
+    acwi_r1s, acwi_r1m = acwi_var(5), acwi_var(21)
     filas = []
     for t in ts:
         if t not in close:
@@ -1058,7 +1065,9 @@ def construir_universo(solo=None):
                       r(corrs.get(t), 2),
                       r(float(rt90.std()) * np.sqrt(252) * 100 * np.sqrt(max(0.0, 1 - corrs[t] ** 2)), 0) if t in corrs and len(rt90) > 20 else None,
                       r(va20, 0), r(float(v_.iloc[-1]) / va20, 1) if va20 else None,
-                      r(float(v_.iloc[-5:].mean()) / float(v_.iloc[-25:-5].mean()), 1) if v_ is not None and len(v_) > 25 and float(v_.iloc[-25:-5].mean()) > 0 else None])
+                      r(float(v_.iloc[-5:].mean()) / float(v_.iloc[-25:-5].mean()), 1) if v_ is not None and len(v_) > 25 and float(v_.iloc[-25:-5].mean()) > 0 else None,
+                      r(var(5) - acwi_r1s, 1) if (var(5) is not None and acwi_r1s is not None) else None,
+                      r(r1m - acwi_r1m, 1) if (r1m is not None and acwi_r1m is not None) else None])
     print(f"Universo WLS: {len(filas)} de {len(ts)} con precios")
     ola_stats, ola_t, ola_s = {}, {}, {}
     try:
