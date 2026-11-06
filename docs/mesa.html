@@ -426,7 +426,7 @@ function evaluar(it){
   else if(sc>=2.5){acc="VIGILAR";cls="a-hold";frase=`Vigilar: tiene señales a favor pero no suficientes para comprar todavía.`;cuando="Revisar en la próxima actualización"}
   else{acc="NO POR AHORA";cls="a-hold";frase="Sin señales suficientes para comprar.";cuando=""}
   const monto=acc==="ANTICIPAR"?(sc>=5?100000:50000):sc>=6?150000:sc>=4?100000:50000;
-  const ev={t:it.t,it,o,code,reg,sc:Math.round(sc*10)/10,acc,cls,frase,cuando,monto,razones:r,alertas:al,dias,dur,gap,tn,red,cart,fase:e.fase};
+  const ev={t:it.t,it,o,code,reg,sc:Math.round(sc*10)/10,acc,cls,frase,cuando,monto,razones:r,alertas:al,dias,dur,gap,tn,red,cart,fase:e.fase,comisionRT,monLocal};
   ev.plan=planOla(ev);
   ev.venta=acc==="ANTICIPAR"?`Si en 3 sesiones no se mueve, venderla y rotar; si cae −5% desde la compra, vender. Si confirma la ola, aumentar y seguir el plan de la ola`:ev.plan?`Vender el ${fechaHoraCL(ev.plan.hVenta)} (hora Chile, 30 min antes del cierre de ${nomBolsa(code)}), sesión ${ev.plan.N} desde la compra, o antes si cae −5%`:`Sin plazo de ola: mantener mientras siga el momentum; vender si cae −7% desde la compra`;
   if(ev.plan&&ev.plan.N<ev.plan.base)ev.alertas.push(ev.plan.notas[ev.plan.notas.length-1]);
@@ -461,7 +461,20 @@ function tarjeta(ev,compacta){const it=ev.it,inf=it.info||{},o=ev.o,enA=ARM.item
     <div class="row" style="justify-content:space-between"><div class="row mono" style="gap:14px;font-size:12.5px"><span>Día ${pct(o.r1d)}</span><span>Semana ${pct(o.r1s)}</span><span>Mes ${pct(o.r1m)}</span></div>${spark((it.hist||[]).slice(-60))}</div>
     <div class="frase">${esc(ev.frase)}</div>
     ${compacta?"":`<div><span class="faint" style="font-size:12px">POR QUÉ</span><ul>${ev.razones.slice(0,5).map(x=>`<li>${esc(x)}</li>`).join("")||"<li>Sin razones fuertes</li>"}${ev.alertas.map(x=>`<li style="color:#fcd34d">⚠ ${esc(x)}</li>`).join("")}</ul></div>`}
-    ${ev.acc.startsWith("COMPRAR")||ev.acc==="ANTICIPAR"?`<div class="plan"><span><b>Cuándo:</b> ${esc(ev.cuando)}</span><span><b>Cuánto:</b> ${usd(ev.monto)} (máximo ${usd(MAXPOS)} por acción)</span><span><b>Salida:</b> ${esc(ev.venta)}</span>${ev.plan?`<span class="faint" style="font-size:12px">${ev.plan.mac.length?`⚠ En el plazo: ${ev.plan.mac.map(x=>esc(x.evento.split(/[:(+]/)[0].trim())+" ("+fecha(x.fecha)+")").join(", ")} · `:""}“Ver detalle” explica por qué ${ev.plan.N} día${ev.plan.N>1?"s":""}</span>`:""}</div>`:ev.cuando?`<div class="plan"><span><b>Cuándo:</b> ${esc(ev.cuando)}</span></div>`:""}
+    ${ev.acc.startsWith("COMPRAR")||ev.acc==="ANTICIPAR"?(()=>{
+      const px=o.precio,stop=px?px*0.95:null,tp=(px&&ev.dur&&ev.dur.exceso!=null&&ev.dur.exceso>0)?px*(1+ev.dur.exceso/100):null;
+      const comPct=ev.comisionRT!=null?ev.comisionRT*100:null,ganBruta=ev.dur&&ev.dur.exceso!=null?ev.dur.exceso:null,ganNeta=ganBruta!=null&&comPct!=null?ganBruta-comPct:null;
+      return`<div class="plan">
+        <span><b>Comprar:</b> ${esc(it.bbg)} a ≈ ${px?fmt(px,px>=1000?0:2):"–"} (precio local; la orden tarda ~20 min en llenarse)</span>
+        <span><b>Cuándo:</b> ${esc(ev.cuando)}</span>
+        <span><b>Cuánto:</b> ${usd(ev.monto)} (máximo ${usd(MAXPOS)} por acción)</span>
+        <span><b>Stop loss sugerido:</b> ${stop?fmt(stop,stop>=1000?0:2):"–"} (−5% desde la compra)</span>
+        <span><b>Take profit sugerido:</b> ${tp?fmt(tp,tp>=1000?0:2)+` (+${fmt(ev.dur.exceso,1)}%, lo típico de esta ola)`:"sin estimación de ola para esta región: seguir el plan de salida de abajo"}</span>
+        <span><b>Comisión ida y vuelta:</b> ${comPct!=null?fmt(comPct,2)+"%"+(ganNeta!=null?` · ganancia esperada ${fmt(ganBruta,1)}% − comisión = ${fmt(ganNeta,1)}% neto`:""):"–"}</span>
+        ${ev.monLocal&&ev.monLocal!=="USD"?`<span><b>Tipo de cambio:</b> cotiza en ${esc(ev.monLocal)}; si el dólar sube o baja, tu ganancia en US$ cambia aunque el precio local no se mueva — revisen antes de confirmar</span>`:""}
+        <span><b>Salida:</b> ${esc(ev.venta)}</span>
+        ${ev.plan?`<span class="faint" style="font-size:12px">${ev.plan.mac.length?`⚠ En el plazo: ${ev.plan.mac.map(x=>esc(x.evento.split(/[:(+]/)[0].trim())+" ("+fecha(x.fecha)+")").join(", ")} · `:""}“Ver detalle” explica por qué ${ev.plan.N} día${ev.plan.N>1?"s":""}</span>`:""}
+      </div>`})():ev.cuando?`<div class="plan"><span><b>Cuándo:</b> ${esc(ev.cuando)}</span></div>`:""}
     ${n0&&!compacta?`<div style="font-size:12.5px"><span class="faint">Noticia:</span> <a href="${esc(n0.url)}" target="_blank" rel="noopener">${esc(n0.titulo)}</a> <span class="faint">· ${esc(n0.fuente||"")}${n0.fecha?" · "+hace(n0.fecha):""}</span></div>`:""}
   </div>
   <div class="foot"><button class="btn small ${enA?"on":""}" data-armar="${esc(ev.t)}">${enA?"✓ En mi cartera armada":"+ Agregar a la cartera"}</button><button class="btn small" data-ver="${esc(ev.t)}">Ver detalle</button></div></article>`}
@@ -779,27 +792,31 @@ function decisionesCartera(){const s=PORT.snaps[PORT.snaps.length-1];if(!s)retur
     const tn=e?e.tn:{s:0,n:0},dE=diasHasta(e?.it.info?.earn),abs=p.abs??0,rel=p.rel??0,sinDatos=o.r1s==null;
     const cae=(o.r1d??0)<0&&(o.r1s??0)<0,sube=(o.r1s??0)>0,sobrecomprada=(o.rsi??0)>=75||(o.r1d??0)>=8;
     let acc="MANTENER",cls="a-hold",cuanto="";
-    // 1) cortar perdidas: pierde contra el WLS y sigue cayendo
+    // comision de salida: una pata (ya pagaron la de entrada al comprar), como % de la posicion
+    const comSalidaPct=p.sh&&p.gross?100*p.sh*COMISION/p.gross:(o.pxusd?100*COMISION/o.pxusd:null);
+    const comSalidaUSD=p.sh?p.sh*COMISION:(comSalidaPct!=null?p.gross*comSalidaPct/100:null);
+    // 1) cortar perdidas: pierde contra el WLS y sigue cayendo (cortar perdidas no se posterga por la comision)
     if(rel<=-5&&(cae||sinDatos&&rel<=-7)){acc="VENDER LO ANTES POSIBLE";cls="a-sell";cuanto="toda la posición";r.push(`Pierde ${sgn(rel)} contra el WLS${sinDatos?"":` y sigue cayendo (día ${sgn(o.r1d)}, semana ${sgn(o.r1s)})`}. Quedan ${quedan} sesiones: mejor liberar la plata para una acción con ola.`)}
     else if(tn.s<=-2){acc="VENDER LO ANTES POSIBLE";cls="a-sell";cuanto="toda la posición";r.push(`Noticias recientes negativas: “${e.it.noticias[0]?.titulo||""}”`)}
-    // 2) reporta resultados hoy o manana con ganancia: asegurar parte antes
-    else if(dE!=null&&dE>=0&&dE<=1&&abs>=8){acc="TOMAR GANANCIA PARCIAL";cls="a-wait";cuanto="vender ~la mitad";r.push(`Reporta resultados ${dE===0?"hoy":"mañana"} (${fecha(e.it.info.earn)}) y ya gana ${sgn(abs)}. El día del reporte puede moverse ±10% para cualquier lado: vender la mitad asegura ganancia y deja la otra mitad para el resultado.`)}
+    // 2) reporta resultados hoy o manana con ganancia: asegurar parte antes (solo si la ganancia cubre la comision de vender)
+    else if(dE!=null&&dE>=0&&dE<=1&&abs>=8&&(comSalidaPct==null||abs-comSalidaPct>=2)){acc="TOMAR GANANCIA PARCIAL";cls="a-wait";cuanto="vender ~la mitad";r.push(`Reporta resultados ${dE===0?"hoy":"mañana"} (${fecha(e.it.info.earn)}) y ya gana ${sgn(abs)}. El día del reporte puede moverse ±10% para cualquier lado: vender la mitad asegura ganancia y deja la otra mitad para el resultado.`)}
     else if(dE!=null&&dE>=0&&dE<=1&&abs<0){acc="REDUCIR ANTES DEL REPORTE";cls="a-wait";cuanto="vender ~la mitad";r.push(`Reporta resultados ${dE===0?"hoy":"mañana"} y va ${sgn(abs)}. Si el reporte sale malo, la pérdida crece: reducir antes.`)}
-    // 3) ganancia grande y se esta dando vuelta o esta sobrecomprada
-    else if(abs>=15&&(cae||sobrecomprada)){acc="TOMAR GANANCIA PARCIAL";cls="a-wait";cuanto="vender ~1/3";r.push(cae?`Gana ${sgn(abs)} pero empezó a bajar (día ${sgn(o.r1d)}, semana ${sgn(o.r1s)}): asegurar parte.`:`Gana ${sgn(abs)} y está sobrecomprada (${(o.rsi??0)>=75?"RSI "+fmt(o.rsi,0):"subió "+sgn(o.r1d)+" hoy"}): suele corregir; asegurar parte.`)}
-    // 4) plata quieta: casi no se mueve y no tiene ola
-    else if(Math.abs(abs)<3&&!sube&&!(e&&e.acc.startsWith("COMPRAR"))){acc="ROTAR";cls="a-wait";cuanto="toda la posición";r.push(`Va ${sgn(abs)} desde la compra y no tiene impulso${sinDatos?"":` (semana ${sgn(o.r1s)})`}. Quedan ${quedan} sesiones: esa plata rinde más en una acción con ola (ver ② Qué hacer ahora).`)}
-    else{if(e&&e.acc.startsWith("COMPRAR"))r.push("Sigue con señales de compra: mantener o incluso aumentar.");
+    // 3) ganancia grande y se esta dando vuelta o esta sobrecomprada (solo si queda ganancia neta de comision)
+    else if(abs>=15&&(cae||sobrecomprada)&&(comSalidaPct==null||abs-comSalidaPct>=3)){acc="TOMAR GANANCIA PARCIAL";cls="a-wait";cuanto="vender ~1/3";r.push(cae?`Gana ${sgn(abs)} pero empezó a bajar (día ${sgn(o.r1d)}, semana ${sgn(o.r1s)}): asegurar parte.`:`Gana ${sgn(abs)} y está sobrecomprada (${(o.rsi??0)>=75?"RSI "+fmt(o.rsi,0):"subió "+sgn(o.r1d)+" hoy"}): suele corregir; asegurar parte.`)}
+    // 4) plata quieta: casi no se mueve y no tiene ola (rotar solo si vender no se come casi toda la diferencia)
+    else if(Math.abs(abs)<3&&!sube&&!(e&&e.acc.startsWith("COMPRAR"))&&(comSalidaPct==null||comSalidaPct<1.5)){acc="ROTAR";cls="a-wait";cuanto="toda la posición";r.push(`Va ${sgn(abs)} desde la compra y no tiene impulso${sinDatos?"":` (semana ${sgn(o.r1s)})`}. Quedan ${quedan} sesiones: esa plata rinde más en una acción con ola (ver ② Qué hacer ahora).`)}
+    else{if(Math.abs(abs)<3&&!sube&&comSalidaPct!=null&&comSalidaPct>=1.5)r.push(`Está quieta y normalmente rotaría, pero vender cuesta ${fmt(comSalidaPct,2)}% de comisión: no compensa todavía. Esperar una señal más clara antes de moverla.`);
+      else if(e&&e.acc.startsWith("COMPRAR"))r.push("Sigue con señales de compra: mantener o incluso aumentar.");
       else if(sinDatos)r.push("Yahoo no entregó sus datos hoy: no se puede leer la tendencia. Revisen en Bloomberg (GP) antes de decidir.");
       else if(sube)r.push(`Tendencia positiva esta semana (${sgn(o.r1s)}).`);
       else r.push(`Semana ${sgn(o.r1s)}: perdió impulso, pero sin señales fuertes de venta.`)}
     // stop sugerido: protege la mitad de la ganancia o limita la perdida a -5% desde hoy
     if(acc==="MANTENER"&&p.px){const st=abs>=10?(1+abs/200)/(1+abs/100):0.95;r.push(`Stop sugerido: vender si baja a ${fmt(p.px*st,p.px>=1000?0:2)} (${sgn((st-1)*100,1)} desde hoy)${abs>=10?", así se queda al menos con la mitad de la ganancia":""}.`)}
+    if(acc!=="MANTENER"&&comSalidaPct!=null){r.push(`Comisión de vender: ${usd(comSalidaUSD)} (${fmt(comSalidaPct,2)}%)${abs!=null?` · te queda ${fmt(abs-comSalidaPct,1)}% neto desde la compra`:""}.`)}
     if(dE!=null&&dE>=2&&dE<=5)al.push(`Reporta resultados en ${dE} días (${fecha(e.it.info.earn)}): decidan antes qué hacer.`);
     if(total[k]>MAXPOS*0.9)al.push(`Entre todas sus compras de esta acción suman ${usd(total[k])}: están cerca del máximo de ${usd(MAXPOS)}.`);
     else if(total[k]>p.gross+1)al.push(`Tienen esta acción en más de una compra: en total ${usd(total[k])}.`);
     if(!sinDatos&&o.r1m!=null&&o.r1m<-15&&abs>10)al.push(`Ojo: Yahoo dice ${sgn(o.r1m)} en el mes, pero TMSG dice ${sgn(abs)} desde la compra. Puede ser un dato malo de Yahoo: confirmen en Bloomberg (GP).`);
-    if(p.sh&&acc!=="MANTENER"&&p.sh*COMISION/p.gross>=0.003)al.push(`Venderla cuesta ${usd(p.sh*COMISION)} en comisión (${fmt(100*p.sh*COMISION/p.gross,2)}%).`);
     const cuando=acc==="MANTENER"?"":est.fase==="abierta"?`Su bolsa está abierta: dar la orden antes de las ${horaChile(code,b.ses[b.ses.length-1][1]-0.5)} (Chile)`:`Su bolsa está cerrada: la orden se ejecuta al abrir (${pa?pa.txt+" hora Chile":"próxima sesión"})`;
     return{p,o,acc,cls,r:r.concat(al.map(x=>"⚠ "+x)),cuando,cuanto,code}})}
 function tarjetaPos(x){return`<article class="dec"><div class="bar ${x.cls}">${esc(x.acc)}${x.cuanto?` · ${esc(x.cuanto)}`:""}</div><div class="body"><div class="tk"><b>${esc(x.p.k)}</b><span>${esc(x.p.des||"")}</span>${BOLSAS[x.code]?chipBolsa(x.code):""}</div>
